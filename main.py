@@ -4,6 +4,7 @@ from pytesseract import pytesseract
 from enum import Enum
 import json
 from time import sleep
+from math import sqrt
 
 def loadParam() -> str:
     pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -281,12 +282,59 @@ class ProfileParser:
         return selectWord.strip()
 
 class MainProfileParser(ProfileParser):
+
+    def __init__(self, fullProfileImage: Image) -> None:
+        super().__init__(fullProfileImage)
+
+        self.__userName: None | str = None
+        self.__clanName: None | str = None
+        self.__rank: None | int = None
+
+        self.__generatorRowOfSpecialColor  = None
+
     allClansName = None
+
+    __TOP_EXPERIENCE_AMOUNT = 140 / 222
+    __BOTTOM_EXPERIENCE_AMOUNT = 170 / 222
+    __SIDE_EXPERIENCE_AMOUNT = 210 / 560
+    __EXPERIENCE_FOR_SUM_30_RANK = 2250000
+    __EXPERIENCE_FOR_30_PLUS_RANK = 147500
+
+    def __extractRank(self):
+
+        if self.__generatorRowOfSpecialColor is None:
+            self.__extractClanName()
+
+            if self.__generatorRowOfSpecialColor is None:
+                return None
+            
+        bottom, left, right = next(self.__generatorRowOfSpecialColor)
+        top = next(self.__generatorRowOfSpecialColor)[0]
+        height = bottom - top
+        width = right - left
+
+        coordinateCrop = (
+                left + width * self.__SIDE_EXPERIENCE_AMOUNT,
+                top + height * self.__TOP_EXPERIENCE_AMOUNT,
+                right - width * self.__SIDE_EXPERIENCE_AMOUNT,
+                top + height * self.__BOTTOM_EXPERIENCE_AMOUNT
+            )
+        
+        experienceImage = self.fullProfileImage.crop(coordinateCrop)
+        experienceStr = pytesseract.image_to_string(experienceImage, config='--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789')
+        exparienceInt = int(experienceStr)
+
+        if exparienceInt < self.__EXPERIENCE_FOR_SUM_30_RANK:
+            self.__rank = int( sqrt( 2 * exparienceInt / 5000 ) )
+        else:
+            self.__rank = 30 + int( ( exparienceInt - self.__EXPERIENCE_FOR_SUM_30_RANK ) / self.__EXPERIENCE_FOR_30_PLUS_RANK )
+
+        return self.__rank
 
     _TOP_CLAN_NAME_BORDER_PROPROTION = 109/177
     _BOTTOM_CLAN_NAME_BORDER_PROPROTION = 140/177
 
-    def _findClanName(self, topBorder: int, bottomBorder: int, leftBorder: int, rightBorder: int) -> str:
+    def __findClanName(self, topBorder: int, bottomBorder: int, leftBorder: int, rightBorder: int) -> str:
         clanSectorHeight = bottomBorder - topBorder
 
         topBorderSectorOfClanName = (int) (topBorder + clanSectorHeight * self._TOP_CLAN_NAME_BORDER_PROPROTION)
@@ -301,10 +349,14 @@ class MainProfileParser(ProfileParser):
     _START_COLUMN_PROPOTION = 0.7
     _STEP_COLUMN_PROPOTION = 0.05
 
-    def extractClanName(self):
+    def __extractClanName(self):
+
         iteration = 0
+
         while self._START_COLUMN_PROPOTION + self._STEP_COLUMN_PROPOTION * iteration < 1:
+
             try:
+
                 leftMarge = (int) (self.xSize * (self._START_COLUMN_PROPOTION + self._STEP_COLUMN_PROPOTION * iteration))
 
                 bottomBorder, leftBorder, rightBorder, specialColor = self._findFirstLineWithSpecialColor(leftMarge, where = DIRECTION.SOUTH)
@@ -314,9 +366,12 @@ class MainProfileParser(ProfileParser):
                 bot = next(generatorRowOfSpecialColor)[0]
                 top = next(generatorRowOfSpecialColor)[0]
                 
-                clanName = self._findClanName(top, bot, leftBorder, rightBorder).strip()
+                clanName = self.__findClanName(top, bot, leftBorder, rightBorder).strip()
                 if clanName in self.allClansName:
+                    self.__generatorRowOfSpecialColor = generatorRowOfSpecialColor
+                    self.__clanName = clanName
                     return clanName
+                
             except StopIteration:
                 pass
             finally:
@@ -324,27 +379,12 @@ class MainProfileParser(ProfileParser):
         return None
 
     _FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE = 7
-    
-    # Deprecated
-    def _findLineUnerUserName(self, columnNumber: int = _FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE, colorEPS: int = 50):
-
-        coordinateCrop = (self.xSize - columnNumber, 0, self.xSize - columnNumber + 1, self.ySize)
-        pixelColumn = self.fullProfileImage.crop(coordinateCrop)
-
-        colorLine = np.array(pixelColumn)
-        colorLine = colorLine.reshape(self.ySize, len(colorLine[0][0]))
-
-        lastColor = colorLine[0]
-        for pixelIndex in range(1, self.ySize):
-            nowColor = colorLine[pixelIndex]
-            if calcColorDifference(nowColor, lastColor) > colorEPS:
-                return pixelIndex
-
     _TOP_MARGE_PROPOTION = 0.2
     _BOTTOM_MARGE_PROPOTION = 0.2
     _SIDE_MARGE_PROPOTION = 0.3
 
-    def extractUserName(self):
+    def __extractUserName(self):
+
         pixelWithUnderLine, _, _, _ = self._findFirstLineWithSpecialColor(self.xSize - self._FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE, minLineSize = 1, startBottomPixel = 0, where = DIRECTION.NORTH)
         # pixelWithUnderLine = self.findLineUnerUserName()
 
@@ -361,8 +401,25 @@ class MainProfileParser(ProfileParser):
 
         usersName: list[str] = pytesseract.image_to_string(userNameImage)
 
-        return self._clearWord(usersName)
+        self.__userName = self._clearWord(usersName)
+        return self.__userName
 
+    @property
+    def userName(self):
+        return self.__userName if self.userName else self.__extractUserName()
+    
+    @userName.setter
+    def userName(self, newName: str):
+        self.__userName = newName
+
+    @property
+    def clanName(self):
+        return self.__clanName if self.__clanName else self.__extractClanName()
+
+    @property
+    def rank(self):
+        return self.__rank if self.__rank else self.__extractRank()
+    
 class ResourceProfileParser(ProfileParser):
 
     ALL_WORDS_FOR_SOURCH = {
@@ -580,8 +637,8 @@ if __name__ == '__main__':
         print(err)
         sleep(5)
     else:
-        p2 = ResourceProfileParser(Image.open('resource/resource/resource4.png'))
-        p2.isRepond()
+        # p2 = ResourceProfileParser(Image.open('resource/resource/resource4.png'))
+        # p2.isRepond()
 
         # img = Image.open('result/a002.png')
         # pix = np.array(img)
@@ -605,12 +662,12 @@ if __name__ == '__main__':
         # print(pytesseract.image_to_string(img, lang = 'rus'))
 
         # print('----------')
-        # for iter in range(7):
-        #     fullProfileImage = Image.open('resource/profile/profile%d.png' % iter)
-        #     p = MainProfileParser(fullProfileImage)
-        #     print(p.extractClanName())
+        for iter in range(7):
+            fullProfileImage = Image.open('resource/profile/profile%d.png' % iter)
+            p = MainProfileParser(fullProfileImage)
+            print(p.rank)
             
-        #     print(p.extractUserName())
+        #     print(p.__extractUserName())
 
-        #     print('----------')
+            print('----------')
 
