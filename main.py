@@ -1,21 +1,15 @@
 import time
 import sys
 sys.path.append('src')
-from profileParser import ResourceProfileParser, loadParam
+from profileParser import ResourceProfileParser
 
 if __name__ == '__main__':
-    err = loadParam()
-
-    if err:
-        print(err)
-        time.sleep(5)
-    else:
-        start = time.time() 
-        p2 = ResourceProfileParser('resource/resource/resource4.png')
-        p2.isRepond()
-        print(time.time() - start)
-        for r, value in p2.resource.items():
-            print(r, value)
+    start = time.time() 
+    p2 = ResourceProfileParser('resource/resource/resource4.png')
+    p2.isRepond()
+    print(time.time() - start)
+    for r, value in p2.resource.items():
+        print(r, value)
 
         # img = Image.open('result/a002.png')
         # pix = np.array(img)

@@ -3,10 +3,16 @@ import numpy as np
 from pytesseract import pytesseract
 from enum import Enum
 import json
+import os
+from dotenv import load_dotenv
 from math import sqrt, exp
 
 def loadParam() -> str:
-    pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    load_dotenv()
+    if pytesseract.tesseract_cmd == 'tesseract':
+        return None
+    
+    pytesseract.tesseract_cmd = os.getenv('PYTESSERACT')
 
     data: dict[str, any] = json.load( open('resource/data.json', encoding='utf8') )
 
@@ -28,23 +34,6 @@ calcColorDifference = lambda firstPixle, secondPixel: abs(np.int16(firstPixle[0]
 calcResourceEval = lambda rank, baseValue, formula: eval( formula, {'sqrt': sqrt, 'exp': exp, 'rank': rank, 'baseValue': baseValue} )
 
 DIRECTION = Enum('Direction', ['NORTH', 'SOUTH', 'WEST', 'EAST'])
-
-def levenstein(firstWord, secondWord):
-    firstLen, secondLen = len(firstWord), len(secondWord)
-    if firstLen > secondLen:
-        firstWord, secondWord = secondWord, firstWord
-        firstLen, secondLen = secondLen, firstLen
-
-    currentRow = range(firstLen + 1)
-    for iteratorLongWord in range(1, secondLen + 1):
-        previousRow, currentRow = currentRow, [iteratorLongWord] + [0] * firstLen
-        for iteratorShortWord in range(1, firstLen + 1):
-            add, delete, change = previousRow[iteratorShortWord] + 1, currentRow[iteratorShortWord - 1] + 1, previousRow[iteratorShortWord - 1]
-            if firstWord[iteratorShortWord - 1] != secondWord[iteratorLongWord - 1]:
-                change += 1
-            currentRow[iteratorShortWord] = min(add, delete, change)
-
-    return currentRow[firstLen]
 
 class ProfileParser:
 
@@ -365,14 +354,6 @@ class MainProfileParser(ProfileParser):
 
     def __extractClanName(self):
 
-        if self.allClansName is None:
-            response = loadParam()
-
-            if not (response is None):
-                print(response)
-
-                return clanName
-
         iteration = 0
 
         while self.__START_COLUMN_PROPOTION + self.__STEP_COLUMN_PROPOTION * iteration < 1:
@@ -526,8 +507,8 @@ class ResourceProfileParser(ProfileParser):
                 cls.ALL_RESOURCE.append(
                     Resource(names, resource['start_cost'], )
                 )
-            except KeyError:
-                print('Cant pars:', resource)
+            except KeyError: pass
+                # print('Cant pars:', resource)
 
 
     ALL_WORDS_FOR_SOURCH = {
@@ -687,20 +668,12 @@ class ResourceProfileParser(ProfileParser):
                         isFind = True
                         break
 
-                if not isFind:
-                    print(nameResource, 'not find')
+                if not isFind: pass
+                    # print(nameResource, 'not find')
 
         return True
 
     def _setParam(self):
-        
-        if self.ALL_RESOURCE is None:
-            response = loadParam()
-
-            if not (response is None):
-                print(response)
-
-                return False
 
         coordinateCrop = (self.indentSide, self.indentTop, self.xSize - self.indentSide, self.indentBottom)
         imageCrop = self.fullProfileImage.crop(coordinateCrop)
@@ -761,3 +734,13 @@ class ResourceProfileParser(ProfileParser):
     @property
     def resource(self):
         return self.__resourses
+    
+
+
+# Load all data from /data.json
+
+if True:
+    res = loadParam()
+    
+    if not res is None:
+        raise NameError(res)

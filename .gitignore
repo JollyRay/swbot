@@ -1,5 +1,6 @@
 [a-z].png
 crop.png
 name.png
-res/*
+result/*
 __pycache__
+.env
