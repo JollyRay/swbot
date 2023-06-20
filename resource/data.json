@@ -1,10 +1,28 @@
 {
-    "all_clans_name": [
-        "SacredWizardsCult",
-        "SacredWizardsVita",
-        "SacredWizardsDeceptio",
-        "SacredWizardsMortuus"
+    "all_clans_name": {
+        "SacredWizardsCult": {
+            "role": 1120513244096892968,
+            "alert_channel": 1120588785340661841
+        },
+        "SacredWizardsVita": {
+            "role": 1120838716815065181,
+            "alert_channel": 1120590257419730954
+        },
+        "SacredWizardsDeceptio": {
+            "role": 1120838726763954306,
+            "alert_channel": 1120590393130622986
+        },
+        "SacredWizardsMortuus": {
+            "role": null,
+            "alert_channel": null
+        }
+    },
+    "all_moderator": [
+        275357556862484484
     ],
+    "profile_channel": 1120588622370979972,
+    "resource_channel": 1120588706403844126,
+    "guild_id": 1002967941895180329,
     "scaling_formula": "rank * baseValue * (rank < 21) + exp( ( rank - 20 ) / 8) * (rank >= 21)",
     "all_resource": [
         {
@@ -266,6 +284,5 @@
             },
             "start_cost": 1000
         }
-        
     ]
 }

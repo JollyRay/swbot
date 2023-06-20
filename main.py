@@ -1,15 +1,25 @@
 import time
 import sys
 sys.path.append('src')
-from profileParser import ResourceProfileParser
+import logging
+import os
+from dotenv import load_dotenv
+from discordPart import setupDiscordBot
+# from profileParser import ResourceProfileParser
 
 if __name__ == '__main__':
-    start = time.time() 
-    p2 = ResourceProfileParser('resource/resource/resource4.png')
-    p2.isRepond()
-    print(time.time() - start)
-    for r, value in p2.resource.items():
-        print(r, value)
+    logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s:%(message)s')
+    load_dotenv()
+    swBot = setupDiscordBot()
+    swBot.run(os.getenv('DISCORD_BOT_TOKEN'))
+
+
+    # start = time.time() 
+    # p2 = ResourceProfileParser('resource/resource/resource4.png')
+    # p2.isRepond()
+    # print(time.time() - start)
+    # for r, value in p2.resource.items():
+    #     print(r, value)
 
         # img = Image.open('result/a002.png')
         # pix = np.array(img)

@@ -14,10 +14,11 @@ def loadParam() -> str:
     
     pytesseract.tesseract_cmd = os.getenv('PYTESSERACT')
 
-    data: dict[str, any] = json.load( open('resource/data.json', encoding='utf8') )
+    with open('resource/data.json', encoding='utf8') as dataFile:
+        data: dict[str, any] = json.load( dataFile )
 
     if 'all_clans_name' in data.keys():
-        MainProfileParser.setAllClansName(data['all_clans_name'])
+        MainProfileParser.setAllClansName(data['all_clans_name'].keys())
     else:
         return 'Key is missing "all_clans_name"'
     
@@ -26,6 +27,7 @@ def loadParam() -> str:
     else:
         return 'Key is missing "all_resource"'
 
+    del data
     return None
     
 #Utility

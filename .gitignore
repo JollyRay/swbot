@@ -4,3 +4,4 @@ name.png
 result/*
 __pycache__
 .env
+app.log
