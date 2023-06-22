@@ -13,17 +13,21 @@
             "alert_channel": 1120590393130622986
         },
         "SacredWizardsMortuus": {
-            "role": null,
+            "role": 1120838729674793050,
             "alert_channel": null
         }
     },
     "all_moderator": [
         275357556862484484
     ],
+    "start_roles": [
+        1003747679404302346
+    ],
+    "profile_info_channel": 1120588622370979972,
     "profile_channel": 1120588622370979972,
     "resource_channel": 1120588706403844126,
     "guild_id": 1002967941895180329,
-    "scaling_formula": "rank * baseValue * (rank < 21) + exp( ( rank - 20 ) / 8) * (rank >= 21)",
+    "scaling_formula": "rank * baseValue * (rank < 21) + 20 * baseValue * exp( ( rank - 20 ) / 8) * (rank >= 21)",
     "all_resource": [
         {
             "name": {

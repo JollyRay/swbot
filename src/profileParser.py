@@ -6,26 +6,29 @@ import json
 import os
 from dotenv import load_dotenv
 from math import sqrt, exp
+from Levenshtein import ratio
 
 def loadParam() -> str:
-    load_dotenv()
-    if pytesseract.tesseract_cmd == 'tesseract':
+
+    if pytesseract.tesseract_cmd != 'tesseract':
         return None
+    
+    load_dotenv()
     
     pytesseract.tesseract_cmd = os.getenv('PYTESSERACT')
 
     with open('resource/data.json', encoding='utf8') as dataFile:
         data: dict[str, any] = json.load( dataFile )
-
-    if 'all_clans_name' in data.keys():
-        MainProfileParser.setAllClansName(data['all_clans_name'].keys())
-    else:
-        return 'Key is missing "all_clans_name"'
     
     if 'all_resource' in data.keys():
         ResourceProfileParser.setAllResource(data['all_resource'])
     else:
         return 'Key is missing "all_resource"'
+    
+    if 'scaling_formula' in data.keys():
+        Resource.setBaseScaling(data['scaling_formula'])
+    else:
+        return 'Key is missing "scaling_formula"'
 
     del data
     return None
@@ -35,13 +38,16 @@ calcColorDifference = lambda firstPixle, secondPixel: abs(np.int16(firstPixle[0]
 
 calcResourceEval = lambda rank, baseValue, formula: eval( formula, {'sqrt': sqrt, 'exp': exp, 'rank': rank, 'baseValue': baseValue} )
 
+wordSimplificationEng = lambda word: word.strip().lower().replace('i', 'l')
+wordSimplificationRus = lambda word: word.strip().lower().replace('ё', 'е').replace('й', 'и')
+
 DIRECTION = Enum('Direction', ['NORTH', 'SOUTH', 'WEST', 'EAST'])
 
 class ProfileParser:
 
     BONUS_MARGING = 8
 
-    def __init__(self, fullProfileImage: Image.Image | str) -> None:
+    def __init__(self, fullProfileImage: Image.Image | str, isSave: bool =False) -> None:
 
         if type(fullProfileImage) is str:
             self.fullProfileImage = Image.open(fullProfileImage)
@@ -52,6 +58,8 @@ class ProfileParser:
 
         self.language: str = 'eng'
         self.textColor: tuple[int] | None = None
+
+        self._isSave = isSave
 
     def _selectSymbolColor(self, symbolImage: Image.Image, banColors: tuple[tuple, int], colorEps: int = 25):
 
@@ -92,7 +100,8 @@ class ProfileParser:
         for color, quantity in allColor.items():
             
             if quantity == maxQuantity:
-                Image.new('RGB', size= (1000, 100), color=color).save('b.png')
+                if self._isSave:
+                    Image.new('RGB', size= (100, 100), color=color).save('result/color.png')
                 return color[:3]
         
     def _setTextColor(self, injectorWord: str, startLineNumber: int = 1, allLine: list[str] | None = None, imageWithText: Image.Image | None = None, language: str | None = None) -> int:
@@ -148,6 +157,8 @@ class ProfileParser:
             return None
 
         pix = np.array(mainImage)
+        if len(pix) > 0 and len(pix[0]) > 0:
+            isWithAlpha = len(pix[0][0]) == 4
 
         for iter in range(pix.shape[0]):
 
@@ -155,11 +166,17 @@ class ProfileParser:
 
                 if calcColorDifference(pix[iter][jtor], selectColor) > colorEsp:
 
-                    pix[iter][jtor] = [255, 255, 255]
+                    if isWithAlpha:
+                        pix[iter][jtor] = [255, 255, 255, 255]
+                    else:
+                        pix[iter][jtor] = [255, 255, 255]
 
                 else:
 
-                    pix[iter][jtor] = [0, 0, 0]
+                    if isWithAlpha:
+                        pix[iter][jtor] = [0, 0, 0, 255]
+                    else:
+                        pix[iter][jtor] = [0, 0, 0]
                     
         return Image.fromarray(pix)
 
@@ -284,18 +301,14 @@ class ProfileParser:
 
 class MainProfileParser(ProfileParser):
 
-    allClansName = None
-
-    @classmethod
-    def setAllClansName(cls, clanNames: list[str]):
-        cls.allClansName = clanNames
-
-    def __init__(self, fullProfileImage: Image.Image | str) -> None:
+    #TODO: remove defualt clanNames
+    def __init__(self, fullProfileImage: Image.Image | str, clanNames: list[str] = ['SacredWizardsCult', 'SacredWizardsDeceptio', 'SacredWizardsMortuus', 'SacredWizardsVita']) -> None:
         super().__init__(fullProfileImage)
 
         self.__userName: None | str = None
         self.__clanName: None | str = None
         self.__rank: None | int = None
+        self.__clanNames = clanNames
 
         self.__generatorRowOfSpecialColor  = None
 
@@ -364,7 +377,10 @@ class MainProfileParser(ProfileParser):
 
                 leftMarge = (int) (self.xSize * (self.__START_COLUMN_PROPOTION + self.__STEP_COLUMN_PROPOTION * iteration))
 
-                bottomBorder, leftBorder, rightBorder, specialColor = self._findFirstLineWithSpecialColor(leftMarge, where = DIRECTION.SOUTH)
+                firstLineInfo = self._findFirstLineWithSpecialColor(leftMarge, where = DIRECTION.SOUTH)
+                if firstLineInfo is None:
+                    continue
+                bottomBorder, leftBorder, rightBorder, specialColor = firstLineInfo
                 generatorRowOfSpecialColor = self._generateLineWithSpecialColor(bottomBorder, leftBorder + 1, specialColor)
 
                 next(generatorRowOfSpecialColor)
@@ -372,13 +388,14 @@ class MainProfileParser(ProfileParser):
                 top = next(generatorRowOfSpecialColor)[0]
                 
                 clanName = self.__findClanName(top, bot, leftBorder, rightBorder).strip()
-                if clanName in self.allClansName:
-                    self.__generatorRowOfSpecialColor = generatorRowOfSpecialColor
-                    self.__clanName = clanName
-                    return clanName
+
+                for exampleClanName in self.__clanNames:
+                    if ratio(clanName, exampleClanName, processor = wordSimplificationEng) > 0.9:
+                        self.__generatorRowOfSpecialColor = generatorRowOfSpecialColor
+                        self.__clanName = exampleClanName
+                        return clanName
                 
-            except StopIteration:
-                pass
+            except StopIteration: pass
             finally:
                 iteration += 1
         return None
@@ -409,23 +426,35 @@ class MainProfileParser(ProfileParser):
 
     @property
     def userName(self):
-        return self.__userName if self.userName else self.__extractUserName()
-    
-    @userName.setter
-    def userName(self, newName: str):
-        self.__userName = newName
+        if self.__userName is None:
+            self.__userName = self.__extractUserName()
+        return self.__userName
 
     @property
     def clanName(self):
-        return self.__clanName if self.__clanName else self.__extractClanName()
+        if self.__clanName is None:
+            self.__clanName = self.__extractClanName()
+        return self.__clanName
 
     @property
     def rank(self):
-        return self.__rank if self.__rank else self.__extractRank()
+        if self.__rank is None:
+            self.__rank = self.__extractRank()
+        return self.__rank
+
+    @property
+    def isFull(self):
+        return all((self.rank, self.clanName, self.userName))
+    
+    @property
+    def isFullWithoutRank(self):
+        return all((self.clanName, self.userName))
 
 class Resource:
 
     BASE_SCALING = '1'
+
+    MAX_RANK = 30
 
     @classmethod
     def setBaseScaling(cls, formulaStr: str):
@@ -456,7 +485,7 @@ class Resource:
             except SyntaxError: pass
 
     def __str__(self):
-        return f'''{self.names['rus']}: {self.baseValue}'''
+        return f'''{self.names['rus']}'''
 
     def getQuantityOnRank(self, rank: int) -> int:
 
@@ -469,25 +498,25 @@ class Resource:
 
         if maxRankForOtherScaling == -1:
 
-            return int( calcResourceEval(rank, self.baseValue, self.BASE_SCALING) )
+            return int( calcResourceEval(min(rank, self.MAX_RANK), self.baseValue, self.BASE_SCALING) )
 
         else:
 
-            return int( calcResourceEval(rank, self.baseValue, self.otherSaling[maxRankForOtherScaling]) )
+            return int( calcResourceEval(min(rank, self.MAX_RANK), self.baseValue, self.otherSaling[maxRankForOtherScaling]) )
         
     def isThisResource(self, word: str, language: str):
 
-        return self.names[language] == word
+        return ratio(self.names[language], word, processor=wordSimplificationEng if language == 'eng' else wordSimplificationRus) > 0.9
 
 class ResourceProfileParser(ProfileParser):
 
     @staticmethod
     def __wordSimplification(word: str, language):
         if language == 'rus':
-            return word.strip().lower().replace('ё', 'е').replace('й', 'и')
+            return wordSimplificationRus(word)
         
         if language == 'eng':
-            return word.strip().lower().replace('i', 'l')
+            return wordSimplificationEng(word)
         
         return word
 
@@ -510,8 +539,6 @@ class ResourceProfileParser(ProfileParser):
                     Resource(names, resource['start_cost'], )
                 )
             except KeyError: pass
-                # print('Cant pars:', resource)
-
 
     ALL_WORDS_FOR_SOURCH = {
         'eng': {
@@ -526,7 +553,7 @@ class ResourceProfileParser(ProfileParser):
         }
     }
 
-    def __init__(self, fullProfileImage: Image.Image | str, indentTopPropotion: float = 0.15, indentBottomPropotion: float = 0.5, indentSide: float = 0.2) -> None:
+    def __init__(self, fullProfileImage: Image.Image | str, rank: int | None = None, quantityNeedTips:int = 2, indentTopPropotion: float = 0.15, indentBottomPropotion: float = 0.5, indentSide: float = 0.2) -> None:
         super().__init__(fullProfileImage)
 
         self.indentTop: int = int(indentTopPropotion * self.ySize)
@@ -537,11 +564,15 @@ class ResourceProfileParser(ProfileParser):
         self.isValid: bool | None = None
 
         self.userName: str | None = None
+        self.rank = rank
+        self.quantityNeedTips = quantityNeedTips
         self.xStartResourse = None
         self.yStartResourse = None
         self.xCenterResourse = None
         self.cubeSideSize: float = 0
         self.grapBetweenCube: float = 0
+
+        self._setParam()
 
     INTERVAL_BETWEEN_CELL_PROPORTION = 0.15
     Y_SIDE_EPS = 10
@@ -551,7 +582,8 @@ class ResourceProfileParser(ProfileParser):
         if coordinateCrop[0] < 0 or coordinateCrop[1] < 0 or coordinateCrop[2] >= self.xSize or coordinateCrop[3] >= self.ySize:
             return False    
         imageCrop = self.fullProfileImage.crop(coordinateCrop)
-        imageCrop.save('name.png')
+        if self._isSave:
+            imageCrop.save('resource/name.png')
 
         self.userName: str = self._clearWord(pytesseract.image_to_string(imageCrop))
 
@@ -630,6 +662,8 @@ class ResourceProfileParser(ProfileParser):
     MAX_COLUM_WITH_RESOURCE = 3
 
     def _setResource(self) -> bool:
+        
+        quantityNow = 0
 
         for rowNumebr in range(self.MAX_ROW_WITH_RESOURCE):
             for columnNumber in range(self.MAX_COLUM_WITH_RESOURCE):
@@ -646,32 +680,39 @@ class ResourceProfileParser(ProfileParser):
 
                 cellImage = self.fullProfileImage.crop(coordinateCrop)
                 cellImage = self._convertImageOnContrast(cellImage, self.textColor)
-                # cellImage.save('result/a%d%d0.png' % (rowNumebr, columnNumber))
+                if self._isSave:
+                    cellImage.save('result/a%d%d0.png' % (rowNumebr, columnNumber))
 
                 coordinateCrop = (0, 0, self.cubeSideSize, cellImage.size[1] / 4)
                 valueImg = cellImage.crop(coordinateCrop)
-                # valueImg.save('result/a%d%d1.png' % (rowNumebr, columnNumber))
+                if self._isSave:
+                    valueImg.save('result/a%d%d1.png' % (rowNumebr, columnNumber))
                 valueResource: str = pytesseract.image_to_string(valueImg, config='--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789')
 
                 coordinateCrop = (0, cellImage.size[1] / 2, self.cubeSideSize, cellImage.size[1])
                 nameImg = cellImage.crop(coordinateCrop)
-                # nameImg.save('result/a%d%d2.png' % (rowNumebr, columnNumber))
+                if self._isSave:
+                    nameImg.save('result/a%d%d2.png' % (rowNumebr, columnNumber))
                 nameResource: str = self.__wordSimplification(pytesseract.image_to_string(nameImg, lang = self.language), self.language)
 
                 if nameResource == '':
                     return True
                 
-                isFind = False
                 for resourceIter in self.ALL_RESOURCE:
                     
                     if resourceIter.isThisResource(nameResource, self.language):
 
                         self.__resourses[resourceIter] = int(valueResource)
-                        isFind = True
-                        break
 
-                if not isFind: pass
-                    # print(nameResource, 'not find')
+                        if self.rank is not None:
+
+                            if resourceIter.getQuantityOnRank(self.rank) <= self.__resourses[resourceIter]:
+                                quantityNow += 1
+
+                                if quantityNow == self.quantityNeedTips:
+                                    return True
+
+                        break
 
         return True
 
@@ -679,7 +720,6 @@ class ResourceProfileParser(ProfileParser):
 
         coordinateCrop = (self.indentSide, self.indentTop, self.xSize - self.indentSide, self.indentBottom)
         imageCrop = self.fullProfileImage.crop(coordinateCrop)
-        imageCrop.save('crop.png')
 
         #Choose languge 
 
@@ -724,14 +764,6 @@ class ResourceProfileParser(ProfileParser):
         self._setResource()
 
         return True
-    
-    def isRepond(self):
-
-        if self.isValid is not None:
-            return self.isValid
-
-        if not self._setParam():
-            return False
 
     @property
     def resource(self):
@@ -741,8 +773,7 @@ class ResourceProfileParser(ProfileParser):
 
 # Load all data from /data.json
 
-if True:
-    res = loadParam()
-    
-    if not res is None:
-        raise NameError(res)
+res = loadParam()
+
+if not res is None:
+    raise NameError(res)
