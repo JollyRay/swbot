@@ -94,7 +94,9 @@ class ProfileParser:
                     if not isFind:
 
                         allColor[ (*pixel, ) ] = 1
-
+                    
+        if len(allColor.values()) == 0:
+            return None
         maxQuantity = max(*allColor.values())
 
         for color, quantity in allColor.items():
@@ -141,7 +143,10 @@ class ProfileParser:
                     banColor = imageWithInjection.convert('RGB').getpixel((0, 0))
 
                 self.textColor = self._selectSymbolColor(imageWithInjection.crop(coordinateFirstSymbolCrop), (banColor, ))
-
+                
+                if self.textColor is None:
+                    return -1
+                
                 return lineNumber
             
             lineNumber += 1
