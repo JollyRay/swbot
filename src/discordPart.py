@@ -51,13 +51,6 @@ def setupDiscordBot() -> commands.bot:
 # Sec
 TIMEOUT_BEFORE_DELETE = 180
 
-class MessageForAnswers:
-    HEADER_FOR_PROFILE_BRANCH = 'Уточнение ника'
-    QUESTION_ABOUT_POTANTIAL_NAME = 'Вы не указали имя перед скринштом. С него было считано "{}" это ваше имя?'
-    IF_PARSE_AND_NICK_DIFFERENT = 'Пожалуйста, напишите свой ник без суффикса после #, тега клана и иных добавлений **В ЭТУ ВЕТКУ**. Если ваш ник содержит форматирующие вставки (как например _), то вы можете экранировать свой ник с помощью `, но это не обязательно.'
-    ANSWER_FOR_FAILED_PARSE_PROFILE = '{} из-за технических шоколадок что-то пошло не так, пожалуйста дождитесь модератора. Он вручную выдаст вам роль.'
-    IF_RESOURCE_PARSER_BREAK = 'Пожалуйста, дождитесь администрации вашего клана. Оповещение им отправлено.'
-
 class _MessageAfterProfileParse(str, Enum):
 
     CORRECT_PARSE = ''
@@ -70,6 +63,31 @@ class _MessageAfterProfileParse(str, Enum):
 
     UNCORRECT_IMAGE_REPORT = '{name.mention} get unparsable image. Need moderator.'
     UNCORRECT_SCRIPT_REPORT = '{name.mention} wrong ratio. Need moderator.'
+
+class _MessageAfterResourseParse(str, Enum):
+    
+    USER_ERROR_RESPOND = 'Ваши данные не соовтетсвуют форме. Пожалуйста попробуйте снова.'
+    TIMEOUT_RESPOND = 'Прошло слишком много времени. Заполните новую форму или обратитесь к модераторам.'
+    UNCORRECT_IMAGE = 'Ваше изображение странного формата. Отправлен запрос модерации для обработки.'
+    MISSING_IMAGE = 'Прикрепите изображени вашего вклада (ESC - Связь - Клан ПКМ по себе "Внесённый вклад")'
+    MISSING_RANK = 'Неудалось получить вашн ранг. Пожалуйста напишите сюда его одним числом.'
+    NEED_MORE_RESOURCE = 'Ваш вклад не соответствует условию:{resource}\n\nБот распарсил верно?'
+    UNCORRECT_USER_DATA = 'Если вы считаете, что бот ошибся, мы отправили оповещение вашим модераторам оповещение.'
+    UNCORRECT_FORMA = 'Вы ошиблись и отправили скриншот не из ESC - Связь - Клан ПКМ по себе "Внесённый вклад"?'
+    UNCORRECT_SCRIPT = 'Ваша ситуация передаётся под управлению модераторм. Сообщением им уже отправлено, пожалуйста подождите.'
+    CORRECT_ALL = 'Ваши данные обработаны и корректны. Повышение санкионировано, пожалуйста дождитесь модератора вашего клана в игре, оповещение им уже отправлено.'
+
+    UNCORRECT_IMAGE_REPORT = '{member.mention} (из {channel.mention}) отправил странное изображение, не могу обработать.'
+    UNCORRECT_USER_DATA_REPORT = '{member.mention} (из {channel.mention}) считает что бот распрасил данные неверно.'
+    UNCORRECT_SCRIPT_REPORT = '{member.mention} (из {channel.mention}) отправил сообщение, которое не вышло обработать'
+    CORRECT_ALL_REPORT = ''
+
+    MAGICIAN_REPORT = '''1. {name} {authorMention}
+2. Magician (2-ой способ)
+3. {rank} ранг
+♂:white_check_mark: - отчёт корректен, подчистить треды.
+:x: - удалить отчёт'''
+    NAME_WARNING = 'Возможно имя не соответсвует хозяину ресурсов!'
 
 class _CommandStuct:
     STANDART_SUCCESSFULL_MESSAGE = 'Success'
@@ -197,7 +215,7 @@ class _CommandProperty:
 
 class _TempThreadWithData:
 
-    def __init__(self, code: _MessageAfterProfileParse, currentMessage: discord.Message, currentTread: discord.Thread, listOfPotensialNames: list[str] | None = None) -> None:
+    def __init__(self, code: _MessageAfterProfileParse | None = None, currentMessage: discord.Message | None = None, currentTread: discord.Thread | None = None, listOfPotensialNames: list[str] | None = None) -> None:
         
         self.code = code
         self.currentMessage = currentMessage
@@ -282,14 +300,123 @@ def attemptExtractRank(comment: str) -> int:
 
     return None
 
+def extractNameWithouClan(fullName: str):
+    tagIndex = fullName.find(']')
+    return fullName if tagIndex == -1 else fullName[tagIndex + 1:].strip()
+
+async def sendReportAndAddLink(currentMessage: discord.Message, currentThread: discord.Thread, rank: int, attachment: list[discord.Attachment], clanName: str, isNameWarning = False):
+    
+    channelAlert: discord.TextChannel = swBot.cogs['SWDataCog'].clanLinks[clanName]['alert_channel']
+    if channelAlert is None:
+        return
+    
+    respond: str =  _MessageAfterResourseParse.MAGICIAN_REPORT.value.format(
+        name = extractNameWithouClan(currentMessage.author.name),
+        authorMention = currentMessage.author.mention,
+        rank = rank
+        )
+    if isNameWarning:
+        respond += f'\n{_MessageAfterResourseParse.NAME_WARNING.value}'
+
+    message: discord.Message = await channelAlert.send(respond, files= attachment)
+    await message.add_reaction('✅')
+    await message.add_reaction('❌')
+
+    swBot.cogs['SWUserCog'].addResourceLinks(message.id, _MessageAfterResourseParse.UNCORRECT_USER_DATA, currentMessage, currentThread)
+
 #################################
 #                               #
 #           Discord             #
 #                               #
 #################################
 
+class BaseWithButtonView(discord.ui.View):
+
+    def __init__(self, *_):
+        super().__init__(timeout = TIMEOUT_BEFORE_DELETE)
+
+        self.__messageWithButton: discord.Message | None = None
+
+    async def on_timeout(self):
+        await self._disableAllButton()
+
+    async def _disableAllButton(self):
+
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+        if self.__messageWithButton is None:
+            await sleep(1)
+            if self.__messageWithButton is None:
+                return
+
+        await self.__messageWithButton.edit(view = self)
+            
+    @property
+    def messageWithButton(self):
+        return self.__messageWithButton
+    
+    @messageWithButton.setter
+    def messageWithButton(self, newMessage):
+        self.__messageWithButton = newMessage
+
+class ResourceParserQuestion(BaseWithButtonView):
+
+    def __init__(self, *, currentMessage: discord.Message, currentThread: discord.Thread, rank: int, attachment: list[discord.Attachment], clanName: str, isNameWaringn: bool = False):
+        super().__init__()
+
+        self.__currentMessage = currentMessage
+        self.__currentThread = currentThread
+        self.__rank = rank
+        self.__attachments = attachment
+        self.__clanName = clanName
+        self.__isNameWaringn = isNameWaringn
+
+    @discord.ui.button( label = 'Да', style = discord.ButtonStyle.green)
+    async def accept(self, interaction: discord.Interaction, button: discord.Button):
+        if self.__currentMessage.author.id != interaction.user.id:
+            await interaction.response.defer()
+            return
+        await interaction.response.defer()
+        await finishWithMember(currentMessage = self.__currentMessage, thread = self.__currentThread)
+
+    @discord.ui.button( label = 'Нет', style = discord.ButtonStyle.red)
+    async def refuse(self, interaction: discord.Interaction, button: discord.Button):
+        if self.__currentMessage.author.id != interaction.user.id:
+            await interaction.response.defer()
+            return
+        await interaction.response.send_message(_MessageAfterResourseParse.UNCORRECT_USER_DATA.value)
+        await self._disableAllButton()
+        await sendReportAndAddLink(self.__currentMessage, self.__currentThread, self.__rank, self.__attachments, self.__clanName, self.__isNameWaringn)
+
+class ResourceCorrectUserForm(BaseWithButtonView):
+    def __init__(self, *, currentMessage: discord.Message, currentThread: discord.Thread):
+        self.__currentMessage = currentMessage
+        self.__currentThread = currentThread
+
+    @discord.ui.button( label= 'Да', style = discord.ButtonStyle.green)
+    async def accept(self, interaction: discord.Interaction, button: discord.Button):
+        if self.__currentMessage.author.id != interaction.user.id:
+            await interaction.response.defer()
+            return
+        
+        await finishWithMember(currentMessage= self.__currentMessage, thread= self.__currentThread)
+
+    @discord.ui.button( label= 'Нет', style = discord.ButtonStyle.red)
+    async def refuse(self, interaction: discord.Interaction, button: discord.Button):
+        if self.__currentMessage.author.id != interaction.user.id:
+            await interaction.response.defer()
+            return
+
+        await interaction.response.send_message(_MessageAfterResourseParse.UNCORRECT_USER_DATA.value)
+
+        channel: discord.TextChannel = swBot.cogs['SWDataCog'].profileParseReportChannel
+        if channel:
+            await channel.send(_MessageAfterResourseParse.UNCORRECT_USER_DATA_REPORT.value.format(member = self.__currentMessage.author, channel = self.__currentMessage.channel))
+
 #TODO: Check timeout after delete channel
-class ProfileMessageWithoutHeaderView(discord.ui.View):
+class ProfileMessageWithoutHeaderView(BaseWithButtonView):
 
     def __init__(self, *, nameFromImage: str, role: discord.Role, currentMessage: discord.Message):
         super().__init__(timeout = TIMEOUT_BEFORE_DELETE)
@@ -308,18 +435,6 @@ class ProfileMessageWithoutHeaderView(discord.ui.View):
 
         swBot.cogs['SWUserCog'].deleteThreadListener(self.__thread)
 
-    async def __disableAllButton(self):
-
-        for item in self.children:
-
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
-
-        if self.__messageWithButton is None:
-            await sleep(1)
-
-        await self.__messageWithButton.edit(view = self)
-
     @discord.ui.button( label = 'Да', style = discord.ButtonStyle.green)
     async def accept(self, interaction: discord.Interaction, button: discord.Button):
         
@@ -327,7 +442,7 @@ class ProfileMessageWithoutHeaderView(discord.ui.View):
             self.__isPushing = True
 
             await interaction.response.defer()
-            await self.__disableAllButton()
+            await self._disableAllButton()
             await finishWithMember(self.__currentMessage.author, f'[{self.__role.name}] {self.__name}', self.__role, self.__currentMessage, self.__thread)
         else:
             await interaction.response.defer()
@@ -338,7 +453,7 @@ class ProfileMessageWithoutHeaderView(discord.ui.View):
         if self.__currentMessage.author.id is interaction.user.id:
             self.__isPushing = True
 
-            await self.__disableAllButton()
+            await self._disableAllButton()
 
             swBot.cogs['SWUserCog'].addThreadListener(
                 self.__thread.id,
@@ -353,14 +468,6 @@ class ProfileMessageWithoutHeaderView(discord.ui.View):
             await interaction.response.send_message(_MessageAfterProfileParse.UNCORRECT_HEADER_IF_IMAGE_PARSE_UNCCORECT.value)
         else:
             await interaction.response.defer()
-        
-    @property
-    def messageWithButton(self):
-        return self.__messageWithButton
-    
-    @messageWithButton.setter
-    def messageWithButton(self, newMessage):
-        self.__messageWithButton = newMessage
 
     @property
     def thread(self):
@@ -546,6 +653,10 @@ class SWCog(commands.Cog, name='SWDataCog'):
     @property
     def profileParseChannel(self):
         return self.__profileChannel
+    
+    @property
+    def resourceChannel(self):
+        return self.__resourceChannel
 
     #################################
     #                               #
@@ -895,8 +1006,10 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
 
     def __init__(self, clinet: commands.Bot):
         self.bot = clinet
+        self.__dataCog: SWCog = clinet.cogs['SWDataCog']
         
         self.__threadForClarifications: dict[int, _TempThreadWithData] = {}
+        self.__reportAndUserDataLink: dict[int, _TempThreadWithData] = {}
 
     @commands.Cog.listener()
     async def on_thread_remove(self, thread: discord.Thread):
@@ -923,6 +1036,10 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             await self.__profileHandler(message)
             return
         
+        if message.channel is self.__dataCog.resourceChannel:
+            await self.__resourceParser(message)
+            return
+        
 
         if message.channel.id in self.__threadForClarifications:
             isNeedLate = await self.__extraThreadHandler(message, self.__threadForClarifications.get(message.channel.id))
@@ -942,7 +1059,7 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
     
     CANT_SEND_TO_MODER_CHAT = 'cant moder chat'
     CANT_SEND_TO_PROFILE_THREAD = 'cant write to thread'
-    CANT_SEND_TO_PROFILE_CHANNEL = 'cant write to thread'
+    CANT_SEND_TO_PROFILE_CHANNEL = 'cant write to channel'
     CANT_DELETE_THREAD = 'cant delete thread'
     CANT_DELETE_MESSAGE = 'cant delete message'
 
@@ -1125,6 +1242,129 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
 
         return listOfPotansialNick
 
+    #################################
+    #                               #
+    #       Main Profile Parse      #
+    #                               #
+    #################################
+
+    THEAD_HEADER = 'Ресурсы?'
+    NEED_RESOURCE_QUANTITY = 2
+
+    async def __resourceParser(self, message: discord.Message):
+
+        rank = attemptExtractRank(message.content)
+
+        if rank is None and len(message.attachments) == 0:
+            await finishWithMember(currentMessage = message)
+            return
+
+        threadForUser: discord.Thread | None = None
+        attachments: list[discord.Attachment] = message.attachments
+        try:
+
+            if len(attachments) == 0:
+                threadForUser = await message.create_thread(name = self.THEAD_HEADER)
+                attachments = await self.__waitForImage(threadForUser)
+            
+            if not any((a.filename.endswith(('.png', '.jpeg', '.gif')) for a in attachments)):
+                if threadForUser is None: threadForUser = await message.create_thread(name = self.THEAD_HEADER)
+
+                await threadForUser.send(_MessageAfterResourseParse.UNCORRECT_IMAGE.value)
+                await self.__dataCog.profileParseReportChannel.send(_MessageAfterResourseParse.UNCORRECT_IMAGE_REPORT.value.format(member = message.author, channel = message.channel))
+                return
+
+            if rank is None:
+                if threadForUser is None: threadForUser = await message.create_thread(name = self.THEAD_HEADER)
+
+                rank = await self.__waitForRank()
+
+            resources, quantityResource, isOtherName = self.__getResource(
+                self.NEED_RESOURCE_QUANTITY,
+                rank,
+                extractNameWithouClan(message.author.name),
+                attachments
+            )
+
+            if len(resources) == 0:
+
+                return
+            
+            for clan, links in self.__dataCog.clanLinks.items():
+                if links['role'] in message.author.roles:
+                    clanName = clan
+                    break
+
+            if quantityResource < self.NEED_RESOURCE_QUANTITY:
+                
+                infoAboutResource = ''
+                for resourceObj, value in resources.items():
+                    needQuantity = resourceObj.getQuantityOnRank(rank)
+                    infoAboutResource += f'\n{":white_check_mark:" if value >= needQuantity else ":x:"} {resourceObj}: {value}/{needQuantity}'
+                
+                if threadForUser is None: threadForUser = await message.create_thread(name = self.THEAD_HEADER)
+                
+                tempView = ResourceParserQuestion(currentMessage=message, currentThread=threadForUser, rank=rank, attachment=attachments, clanName=clanName, isNameWaringn=isOtherName)
+                messageWithButton = await threadForUser.send(
+                    _MessageAfterResourseParse.NEED_MORE_RESOURCE.value.format( resource = infoAboutResource),
+                    view = tempView                    
+                )
+                tempView.messageWithButton = messageWithButton
+            else:
+                if threadForUser is None: threadForUser = await message.create_thread(name = self.THEAD_HEADER)
+
+                await threadForUser.send(_MessageAfterResourseParse.CORRECT_ALL.value)
+                await sendReportAndAddLink(message, threadForUser, rank, attachments, clanName, isOtherName)
+
+                
+
+        except discord.HTTPException | discord.Forbidden:
+            logging.info(f'::{self.CANT_SEND_TO_PROFILE_CHANNEL}')
+        except asyncio.TimeoutError:
+            if threadForUser:
+                await threadForUser.send( _MessageAfterResourseParse.TIMEOUT_RESPOND.value )
+        except Exception as e:
+            logging.info(traceback.print_exception(e))
+
+    async def __waitForImage(self, thread: discord.Thread):
+        await thread.send(_MessageAfterResourseParse.MISSING_IMAGE.value)
+
+        def check(potantialMessage: discord.Message):
+            return len(potantialMessage.attachments) > 0 and potantialMessage.channel == thread
+
+        mes = await self.bot.wait_for('message', timeout = TIMEOUT_BEFORE_DELETE, check=check)
+        return mes.attachments
+
+    async def __waitForRank(self, thread: discord.Thread):
+        await thread.send(_MessageAfterResourseParse.MISSING_RANK.value)
+
+        def check(potantialMessage: discord.Message):
+            return not (attemptExtractRank(potantialMessage.content) is None)
+        
+        mes = await self.bot.wait_for('message', timeout = TIMEOUT_BEFORE_DELETE, check = check)
+        return attemptExtractRank(mes.content)
+
+    def __getResource(self, howMuchNeed: int, rank: int, authorName: str, attachments: list[discord.Attachment]):
+        resource = {}
+        isOtherName = False
+        quantityNow = 0
+
+        for attachment in attachments:
+            if attachment.filename.endswith(('.png', '.jpeg', '.gif')):
+                image = _converAttachmentToImage(attachment)
+                resourceParser = ResourceProfileParser(image, rank, quantityNeedTips = howMuchNeed - quantityNow)
+                resource |= resourceParser.resource
+                isOtherName = isOtherName or ratio(resourceParser.__userName, authorName, processor = wordSimplificationEng) < self.MINIMUM_PART_MATCH
+                quantityNow += resourceParser.enoughQuantityResource
+                if quantityNow >= howMuchNeed:
+                    return (resource, quantityNow, isOtherName)
+        
+        return (resource, quantityNow, isOtherName)
+
+    async def __createCheckCorrectForm(self, currentMessage: discord.Message, thread: discord.Thread):
+
+        pass
+        
 
     #################################
     #                               #
@@ -1239,5 +1479,11 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             except discord.HTTPException | discord.Forbidden:
                 logging.info(f'::{self.CANT_SEND_TO_MODER_CHAT}')
 
+    def addResourceLinks(self, reportMessageId: int, code: _MessageAfterProfileParse, currentMessage: discord.Message, thread: discord.Thread):
+        self.__reportAndUserDataLink[reportMessageId] = _TempThreadWithData(code ,currentMessage=currentMessage, thread=thread)
+
+    def deleteReportLink(self, reportMessageId: int):
+        if reportMessageId in self.__reportAndUserDataLink:
+            del self.__reportAndUserDataLink[reportMessageId]
 
 ALL_COGS = [SWCog, SWUserCog]

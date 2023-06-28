@@ -566,10 +566,10 @@ class ResourceProfileParser(ProfileParser):
         self.indentSide: int = int(indentSide * self.xSize)
 
         self.__resourses: dict[Resource, int] = {}
-        self.isValid: bool | None = None
 
-        self.userName: str | None = None
-        self.rank = rank
+        self.__userName: str | None = None
+        self.__rank = rank
+        self.__enoughQuantityResource = 0
         self.quantityNeedTips = quantityNeedTips
         self.xStartResourse = None
         self.yStartResourse = None
@@ -590,7 +590,7 @@ class ResourceProfileParser(ProfileParser):
         if self._isSave:
             imageCrop.save('resource/name.png')
 
-        self.userName: str = self._clearWord(pytesseract.image_to_string(imageCrop))
+        self.__userName: str = self._clearWord(pytesseract.image_to_string(imageCrop))
 
         return True
 
@@ -667,8 +667,6 @@ class ResourceProfileParser(ProfileParser):
     MAX_COLUM_WITH_RESOURCE = 3
 
     def _setResource(self) -> bool:
-        
-        quantityNow = 0
 
         for rowNumebr in range(self.MAX_ROW_WITH_RESOURCE):
             for columnNumber in range(self.MAX_COLUM_WITH_RESOURCE):
@@ -709,12 +707,12 @@ class ResourceProfileParser(ProfileParser):
 
                         self.__resourses[resourceIter] = int(valueResource)
 
-                        if self.rank is not None:
+                        if self.__rank is not None:
 
-                            if resourceIter.getQuantityOnRank(self.rank) <= self.__resourses[resourceIter]:
-                                quantityNow += 1
+                            if resourceIter.getQuantityOnRank(self.__rank) <= self.__resourses[resourceIter]:
+                                self.__enoughQuantityResource += 1
 
-                                if quantityNow == self.quantityNeedTips:
+                                if self.__enoughQuantityResource == self.quantityNeedTips:
                                     return True
 
                         break
@@ -746,7 +744,7 @@ class ResourceProfileParser(ProfileParser):
 
         lineNumber = self._searchUserName(lineNumber, allLine)
 
-        if self.userName is None:
+        if self.__userName is None:
             return False
         
         # Set center header
@@ -774,7 +772,12 @@ class ResourceProfileParser(ProfileParser):
     def resource(self):
         return self.__resourses
     
-
+    @property
+    def __userName(self):
+        return self.__userName
+    
+    def enoughQuantityResource(self):
+        return self.__enoughQuantityResource
 
 # Load all data from /data.json
 
