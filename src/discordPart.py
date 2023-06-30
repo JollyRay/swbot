@@ -11,7 +11,6 @@ from profileParser import MainProfileParser, ResourceProfileParser, wordSimplifi
 from Levenshtein import ratio
 from asyncio import sleep 
 from collections.abc import Iterable
-import traceback
 from enum import Enum
 
 PREFIX = '♂'
@@ -51,6 +50,9 @@ def setupDiscordBot() -> commands.bot:
 # Sec
 TIMEOUT_BEFORE_DELETE = 180
 
+ACCEPT_SYMBLE = '✅'
+REFUSE_SYMBLE = '❌'
+
 class _MessageAfterProfileParse(str, Enum):
 
     CORRECT_PARSE = ''
@@ -85,7 +87,7 @@ class _MessageAfterResourseParse(str, Enum):
     MAGICIAN_REPORT = '''1. {name} {authorMention}
 2. Magician (2-ой способ)
 3. {rank} ранг
-♂:white_check_mark: - отчёт корректен, подчистить треды.
+:white_check_mark: - отчёт корректен, подчистить треды.
 :x: - удалить отчёт'''
     NAME_WARNING = 'Возможно имя не соответсвует хозяину ресурсов!'
 
@@ -283,7 +285,9 @@ async def _converAttachmentToImage(attachment: discord.Attachment):
 
 def attemptExtractRank(comment: str) -> int:
 
-    if len(comment) > 4:
+    if comment.isdigit():
+        return int(comment)
+    elif len(comment) > 4:
 
         isLegendary = comment.find('лег') >= 0
 
@@ -304,25 +308,27 @@ def extractNameWithouClan(fullName: str):
     tagIndex = fullName.find(']')
     return fullName if tagIndex == -1 else fullName[tagIndex + 1:].strip()
 
-async def sendReportAndAddLink(currentMessage: discord.Message, currentThread: discord.Thread, rank: int, attachment: list[discord.Attachment], clanName: str, isNameWarning = False):
-    
+async def sendRespondAndReport(currentMessage: discord.Message, currentThread: discord.Thread, rank: int, attachment: list[discord.Attachment], clanName: str, isNameWarning = False):
+
+    if clanName is None:
+        return
     channelAlert: discord.TextChannel = swBot.cogs['SWDataCog'].clanLinks[clanName]['alert_channel']
     if channelAlert is None:
         return
     
     respond: str =  _MessageAfterResourseParse.MAGICIAN_REPORT.value.format(
-        name = extractNameWithouClan(currentMessage.author.name),
+        name = extractNameWithouClan(currentMessage.author.name) if currentMessage.author.nick is None else extractNameWithouClan(currentMessage.author.nick),
         authorMention = currentMessage.author.mention,
         rank = rank
         )
     if isNameWarning:
         respond += f'\n{_MessageAfterResourseParse.NAME_WARNING.value}'
 
-    message: discord.Message = await channelAlert.send(respond, files= attachment)
-    await message.add_reaction('✅')
-    await message.add_reaction('❌')
+    message: discord.Message = await channelAlert.send(respond, files= [await a.to_file() for a in attachment])
+    await message.add_reaction(ACCEPT_SYMBLE)
+    await message.add_reaction(REFUSE_SYMBLE)
 
-    swBot.cogs['SWUserCog'].addResourceLinks(message.id, _MessageAfterResourseParse.UNCORRECT_USER_DATA, currentMessage, currentThread)
+    swBot.cogs['SWUserCog'].addResourceLinks(message, _MessageAfterResourseParse.UNCORRECT_USER_DATA, currentMessage, currentThread)
 
 #################################
 #                               #
@@ -388,7 +394,7 @@ class ResourceParserQuestion(BaseWithButtonView):
             return
         await interaction.response.send_message(_MessageAfterResourseParse.UNCORRECT_USER_DATA.value)
         await self._disableAllButton()
-        await sendReportAndAddLink(self.__currentMessage, self.__currentThread, self.__rank, self.__attachments, self.__clanName, self.__isNameWaringn)
+        await sendRespondAndReport(self.__currentMessage, self.__currentThread, self.__rank, self.__attachments, self.__clanName, self.__isNameWaringn)
 
 class ResourceCorrectUserForm(BaseWithButtonView):
     def __init__(self, *, currentMessage: discord.Message, currentThread: discord.Thread):
@@ -984,8 +990,6 @@ class SWCog(commands.Cog, name='SWDataCog'):
 
             logging.info(f'{ctx.author.name}:{targetCommandObject.commandName}:uncorrect id:{name}:{id}')
             return (False, None)
-        
-        iter = discord.utils.find(lambda iter: iter.id == id, listForSearch)
 
         if iter is not None:
             logging.info(f'{ctx.author.name}:{targetCommandObject.commandName}:success:{name}:{id}')
@@ -996,11 +1000,11 @@ class SWCog(commands.Cog, name='SWDataCog'):
 
         return (False, targetCommandObject.getFailedAnswer(name, id))
 
-    #############################
-    #                           #
-    #       USER HANDLER        #
-    #                           #
-    #############################
+#############################
+#                           #
+#       USER HANDLER        #
+#                           #
+#############################
 
 class SWUserCog(commands.Cog, name='SWUserCog'):
 
@@ -1009,13 +1013,32 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
         self.__dataCog: SWCog = clinet.cogs['SWDataCog']
         
         self.__threadForClarifications: dict[int, _TempThreadWithData] = {}
-        self.__reportAndUserDataLink: dict[int, _TempThreadWithData] = {}
+        self.__reportAndUserDataLink: dict[discord.Message, _TempThreadWithData] = {}
 
     @commands.Cog.listener()
     async def on_thread_remove(self, thread: discord.Thread):
         print(thread.name)
 
         self.deleteThreadListener(thread)
+
+        
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        
+        message: discord.Message | None = discord.utils.find(lambda message: message.id == payload.message_id, self.__reportAndUserDataLink.keys())
+        if message:
+    
+            if payload.emoji.name == ACCEPT_SYMBLE:
+                stringIndex = message.content.find('\n:white_check_mark:')
+                if stringIndex != -1:
+                    await message.edit(content = message.content[:stringIndex])
+                    await finishWithMember(currentMessage = self.__reportAndUserDataLink[message].currentMessage, thread = self.__reportAndUserDataLink[message].currentThread)
+                    await message.clear_reactions()
+                    self.deleteReportLink(message)
+
+            if payload.emoji.name == REFUSE_SYMBLE:
+                await finishWithMember(currentMessage=message)
+                self.deleteReportLink(message)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -1058,8 +1081,10 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
     #################################
     
     CANT_SEND_TO_MODER_CHAT = 'cant moder chat'
-    CANT_SEND_TO_PROFILE_THREAD = 'cant write to thread'
-    CANT_SEND_TO_PROFILE_CHANNEL = 'cant write to channel'
+    CANT_SEND_TO_PROFILE_THREAD = 'cant write to profile thread'
+    CANT_SEND_TO_PROFILE_CHANNEL = 'cant write to profile channel'
+    CANT_SEND_TO_RESOURCE_THREAD = 'cant write to resource thread'
+    CANT_SEND_TO_RESOURCE_CHANNEL = 'cant write to resource channel'
     CANT_DELETE_THREAD = 'cant delete thread'
     CANT_DELETE_MESSAGE = 'cant delete message'
 
@@ -1244,7 +1269,7 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
 
     #################################
     #                               #
-    #       Main Profile Parse      #
+    #        Resource Parse         #
     #                               #
     #################################
 
@@ -1277,19 +1302,19 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             if rank is None:
                 if threadForUser is None: threadForUser = await message.create_thread(name = self.THEAD_HEADER)
 
-                rank = await self.__waitForRank()
+                rank = await self.__waitForRank(threadForUser)
 
-            resources, quantityResource, isOtherName = self.__getResource(
+            resources, quantityResource, isOtherName = await self.__getResource(
                 self.NEED_RESOURCE_QUANTITY,
                 rank,
-                extractNameWithouClan(message.author.name),
+                extractNameWithouClan(message.author.name) if message.author.nick is None else extractNameWithouClan(message.author.nick),
                 attachments
             )
-
+            
             if len(resources) == 0:
-
                 return
             
+            clanName = None
             for clan, links in self.__dataCog.clanLinks.items():
                 if links['role'] in message.author.roles:
                     clanName = clan
@@ -1314,17 +1339,16 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
                 if threadForUser is None: threadForUser = await message.create_thread(name = self.THEAD_HEADER)
 
                 await threadForUser.send(_MessageAfterResourseParse.CORRECT_ALL.value)
-                await sendReportAndAddLink(message, threadForUser, rank, attachments, clanName, isOtherName)
+                await sendRespondAndReport(message, threadForUser, rank, attachments, clanName, isOtherName)
 
-                
-
-        except discord.HTTPException | discord.Forbidden:
+        except discord.HTTPException:
             logging.info(f'::{self.CANT_SEND_TO_PROFILE_CHANNEL}')
         except asyncio.TimeoutError:
             if threadForUser:
                 await threadForUser.send( _MessageAfterResourseParse.TIMEOUT_RESPOND.value )
         except Exception as e:
-            logging.info(traceback.print_exception(e))
+            logging.info(str(e))
+            await self.__replyNsendModer(message, _MessageAfterResourseParse.UNCORRECT_SCRIPT.value, _MessageAfterResourseParse.UNCORRECT_SCRIPT_REPORT.value.format(member = message.author, channel = message.channel), True)
 
     async def __waitForImage(self, thread: discord.Thread):
         await thread.send(_MessageAfterResourseParse.MISSING_IMAGE.value)
@@ -1344,27 +1368,22 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
         mes = await self.bot.wait_for('message', timeout = TIMEOUT_BEFORE_DELETE, check = check)
         return attemptExtractRank(mes.content)
 
-    def __getResource(self, howMuchNeed: int, rank: int, authorName: str, attachments: list[discord.Attachment]):
+    async def __getResource(self, howMuchNeed: int, rank: int, authorName: str, attachments: list[discord.Attachment]):
         resource = {}
         isOtherName = False
         quantityNow = 0
 
         for attachment in attachments:
             if attachment.filename.endswith(('.png', '.jpeg', '.gif')):
-                image = _converAttachmentToImage(attachment)
+                image = await _converAttachmentToImage(attachment)
                 resourceParser = ResourceProfileParser(image, rank, quantityNeedTips = howMuchNeed - quantityNow)
                 resource |= resourceParser.resource
-                isOtherName = isOtherName or ratio(resourceParser.__userName, authorName, processor = wordSimplificationEng) < self.MINIMUM_PART_MATCH
+                isOtherName = isOtherName or ratio(resourceParser.userName, authorName, processor = wordSimplificationEng) < self.MINIMUM_PART_MATCH
                 quantityNow += resourceParser.enoughQuantityResource
                 if quantityNow >= howMuchNeed:
                     return (resource, quantityNow, isOtherName)
         
         return (resource, quantityNow, isOtherName)
-
-    async def __createCheckCorrectForm(self, currentMessage: discord.Message, thread: discord.Thread):
-
-        pass
-        
 
     #################################
     #                               #
@@ -1479,11 +1498,11 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             except discord.HTTPException | discord.Forbidden:
                 logging.info(f'::{self.CANT_SEND_TO_MODER_CHAT}')
 
-    def addResourceLinks(self, reportMessageId: int, code: _MessageAfterProfileParse, currentMessage: discord.Message, thread: discord.Thread):
-        self.__reportAndUserDataLink[reportMessageId] = _TempThreadWithData(code ,currentMessage=currentMessage, thread=thread)
+    def addResourceLinks(self, reportMessage: discord.Message, code: _MessageAfterProfileParse, currentMessage: discord.Message, thread: discord.Thread):
+        self.__reportAndUserDataLink[reportMessage] = _TempThreadWithData(code ,currentMessage=currentMessage, currentTread=thread)
 
-    def deleteReportLink(self, reportMessageId: int):
-        if reportMessageId in self.__reportAndUserDataLink:
-            del self.__reportAndUserDataLink[reportMessageId]
+    def deleteReportLink(self, reportMessage: discord.Message):
+        if reportMessage in self.__reportAndUserDataLink:
+            del self.__reportAndUserDataLink[reportMessage]
 
 ALL_COGS = [SWCog, SWUserCog]
