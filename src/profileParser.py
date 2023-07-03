@@ -1,6 +1,6 @@
 from PIL import Image
 import numpy as np
-from pytesseract import pytesseract
+from pytesseract import pytesseract, Output
 from enum import Enum
 import json
 import os
@@ -9,6 +9,9 @@ from math import sqrt, exp
 from Levenshtein import ratio
 from threading import Thread
 import functools
+import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, wait
+from threading import RLock
 
 def timeout(timeout):
     def deco(func):
@@ -74,7 +77,7 @@ class ProfileParser:
 
     BONUS_MARGING = 8
 
-    def __init__(self, fullProfileImage: Image.Image | str, isSave: bool =False) -> None:
+    def __init__(self, fullProfileImage: Image.Image | str, isSave: bool = False) -> None:
 
         if type(fullProfileImage) is str:
             self.fullProfileImage = Image.open(fullProfileImage)
@@ -88,52 +91,30 @@ class ProfileParser:
 
         self._isSave = isSave
 
-    def _selectSymbolColor(self, symbolImage: Image.Image, banColors: tuple[tuple, int], colorEps: int = 25):
+    def _selectSymbolColor(self, symbolImage: Image.Image, banColors: tuple[tuple, int], colorEps: int = 24):
 
-        def isColorInBan(banColors: tuple[tuple, int], color: list[int], colorEps: int) -> bool:
+        def isColorInBan(color: list[int]) -> bool:
             for banColor in banColors:
                 if calcColorDifference(color, banColor) < colorEps:
                     return True
             return False
 
         pixels = np.array(symbolImage)
+        pixels = np.reshape(pixels, (-1, pixels.shape[2]))
+        extraPixel = np.apply_along_axis(isColorInBan, axis = 1, arr = pixels)
 
-        allColor = {}
+        pixels = np.delete(pixels, extraPixel, axis = 0)
 
-        for pixelLine in pixels:
+        pixels[:3] = pixels[:3] // ( colorEps // 3 ) *  (colorEps // 3 )
 
-            for pixel in pixelLine:
+        differenceColor = np.unique(pixels, return_counts = True, axis = 0)
 
-                if not isColorInBan(banColors, pixel, colorEps):
-                    
-                    isFind = False
-
-                    for nowColor in allColor.keys():
-
-                        if calcColorDifference(pixel, nowColor) < colorEps:
-
-                            isFind = True
-
-                            allColor[nowColor] += 1
-
-                            break
-                    
-                    if not isFind:
-
-                        allColor[ (*pixel, ) ] = 1
-                    
-        if len(allColor.values()) == 0:
+        if len(differenceColor[0]) == 0:
             return None
-        maxQuantity = max(*allColor.values())
 
-        for color, quantity in allColor.items():
-            
-            if quantity == maxQuantity:
-                if self._isSave:
-                    Image.new('RGB', size= (100, 100), color=color).save('result/color.png')
-                return color[:3]
+        return differenceColor[0][np.argmax(differenceColor[1])][:3]
         
-    def _setTextColor(self, injectorWord: str, startLineNumber: int = 1, allLine: list[str] | None = None, imageWithText: Image.Image | None = None, language: str | None = None) -> int:
+    def _setTextColor(self, injectorWord: str, startLineNumber: int = 0, dataFrameFindWord: pd.DataFrame | None = None, imageWithText: Image.Image | None = None, language: str | None = None) -> int:
 
         if language is None:
             language = self.language
@@ -141,44 +122,47 @@ class ProfileParser:
         if imageWithText is None:
             imageWithText = self.fullProfileImage
 
-        if allLine is None:
-            allLine = pytesseract.image_to_data(imageWithText, lang = language).split('\n')
+        if dataFrameFindWord is None or dataFrameFindWord.ndim != 2:
+            return -1
 
         lineNumber = startLineNumber
 
-        while lineNumber < len(allLine):
+        seriesWithName = dataFrameFindWord.iloc[lineNumber:].loc[dataFrameFindWord['text'].str.contains(injectorWord, case = False)]
 
-            if injectorWord in allLine[lineNumber].casefold():
+        if seriesWithName.empty:
+            return -1
+        
 
-                lineItem = allLine[lineNumber].split()
+        xStart, yStart, width, height = seriesWithName.iloc[0][7:11].values
+        coordinateCrop = (
+            max(xStart - self.BONUS_MARGING, 0),
+            max(yStart - self.BONUS_MARGING, 0),
+            min(xStart + self.BONUS_MARGING + width, self.xSize),
+            min(yStart + self.BONUS_MARGING + height, self.ySize)
+        )
 
-                xStart, yStart, width, height = [int(item) for item in lineItem[6:10:1]]
-                coordinateCrop = (
-                        max(xStart - self.BONUS_MARGING, 0),
-                        max(yStart - self.BONUS_MARGING, 0),
-                        min(xStart + self.BONUS_MARGING + width, self.xSize),
-                        min(yStart + self.BONUS_MARGING + height, self.ySize)
-                    )
+        imageWithInjection = imageWithText.crop(coordinateCrop)
+
+
+        symblesOfWord = pytesseract.image_to_boxes(imageWithInjection, lang = language, output_type = Output.DICT)
+
+        if len(symblesOfWord) == 0:
+            return -1
+        coordinateFirstSymbolCrop = (
+            symblesOfWord['left'][0],
+            symblesOfWord['bottom'][0],
+            symblesOfWord['right'][0],
+            symblesOfWord['top'][0]
+        )
+
+        banColor = (0, 0, 0) if xStart - self.BONUS_MARGING < 0 else imageWithInjection.convert('RGB').getpixel((0, 0))
+
+        self.textColor = self._selectSymbolColor(imageWithInjection.crop(coordinateFirstSymbolCrop), (banColor, ))
                 
-                imageWithInjection = imageWithText.crop(coordinateCrop)
-                firstSymbol = pytesseract.image_to_boxes(imageWithInjection, lang = language).split()
-                coordinateFirstSymbolCrop = (int(firstSymbol[1]), int(firstSymbol[2]), int(firstSymbol[1]) + int(firstSymbol[3]), int(firstSymbol[1]) + int(firstSymbol[4]))
-                
-                if xStart - self.BONUS_MARGING < 0:
-                    banColor = (0, 0, 0)
-                else:
-                    banColor = imageWithInjection.convert('RGB').getpixel((0, 0))
+        if self.textColor is None:
+            return -1
 
-                self.textColor = self._selectSymbolColor(imageWithInjection.crop(coordinateFirstSymbolCrop), (banColor, ))
-                
-                if self.textColor is None:
-                    return -1
-                
-                return lineNumber
-            
-            lineNumber += 1
-
-        return -1
+        return seriesWithName.index[0]
 
     def _convertImageOnContrast(self, mainImage: Image.Image, selectColor: tuple[int] | None = None, colorEsp: int = 50) -> Image.Image:
 
@@ -585,19 +569,15 @@ class ResourceProfileParser(ProfileParser):
         }
     }
 
-    def __init__(self, fullProfileImage: Image.Image | str, rank: int | None = None, quantityNeedTips:int = 2, indentTopPropotion: float = 0.15, indentBottomPropotion: float = 0.5, indentSide: float = 0.2) -> None:
+    def __init__(self, fullProfileImage: Image.Image | str, rank: int | None = None) -> None:
         super().__init__(fullProfileImage)
-
-        self.indentTop: int = int(indentTopPropotion * self.ySize)
-        self.indentBottom: int = int(indentBottomPropotion * self.ySize)
-        self.indentSide: int = int(indentSide * self.xSize)
 
         self.__resourses: dict[Resource, int] = {}
 
         self.__userName: str | None = None
         self.__rank = rank
         self.__enoughQuantityResource = 0
-        self.quantityNeedTips = quantityNeedTips
+        self.__resourceAddLocker = RLock()
         self.xStartResourse = None
         self.yStartResourse = None
         self.xCenterResourse = None
@@ -610,12 +590,14 @@ class ResourceProfileParser(ProfileParser):
     Y_SIDE_EPS = 10
 
     def _setUserName(self, x: int, y: int, width: int, height: int) -> bool:
-        coordinateCrop = (x + self.indentSide - self.BONUS_MARGING, y + self.indentTop - self.BONUS_MARGING, x + width + self.indentSide + self.BONUS_MARGING, y + height + self.indentTop + self.BONUS_MARGING)
+
+        coordinateCrop = (x - self.BONUS_MARGING, y - self.BONUS_MARGING, x + width + self.BONUS_MARGING, y + height + self.BONUS_MARGING)
+
         if coordinateCrop[0] < 0 or coordinateCrop[1] < 0 or coordinateCrop[2] >= self.xSize or coordinateCrop[3] >= self.ySize:
             return False    
         imageCrop = self.fullProfileImage.crop(coordinateCrop)
         if self._isSave:
-            imageCrop.save('resource/name.png')
+            imageCrop.save('result/name.png')
 
         self.__userName: str = self._clearWord(pytesseract.image_to_string(imageCrop))
 
@@ -633,20 +615,33 @@ class ResourceProfileParser(ProfileParser):
                 return False
         return True
 
+    def __extractWordUnderHeader(self, lineNumber: int, dataFrameFindWord: pd.DataFrame) -> pd.DataFrame:
+        firstWordUnderHeader = dataFrameFindWord[lineNumber:].loc[dataFrameFindWord['text'] == self.ALL_WORDS_FOR_SOURCH[self.language]['firstWord']]
+
+        if firstWordUnderHeader.empty:
+            return None
+        
+        wordHeight, pixelTop = firstWordUnderHeader.iloc[0][['height', 'top']]
+
+        wordsUnderHeader = dataFrameFindWord[lineNumber:].loc[abs(dataFrameFindWord['top'] - pixelTop) < wordHeight/ 2]
+
+        if wordsUnderHeader.empty:
+            return None, None
+        
+        return wordsUnderHeader, wordsUnderHeader.tail(1).index[0]
+
     #TODO: Check on shor or lower names
-    def _searchUserName(self, lineNumber, allLine: list[str]) -> int:
+    def _searchUserName(self, dataFrameFindWord: pd.DataFrame) -> bool:
 
-        while lineNumber < len(allLine) - 1:
+        if dataFrameFindWord.ndim != 2 or dataFrameFindWord.shape[1] < 2:
+            return False
+        
+        seriesWithName = dataFrameFindWord.iloc[1]
 
-            if allLine[lineNumber].find(self.ALL_WORDS_FOR_SOURCH[self.language]['firstWord']) != -1:
-                lineItem = allLine[lineNumber].split()
-
-                lineItem = allLine[lineNumber + 1].split()
-                if not self._setUserName(*[int(value) for value in lineItem[6:10:1]]):
-                    return -1
-                return lineNumber
-            lineNumber += 1
-        return -1
+        if not self._setUserName(*seriesWithName[7:11]):
+            return False
+        
+        return True
 
     # @param:
     #   lineNumber - is start header index
@@ -654,146 +649,132 @@ class ResourceProfileParser(ProfileParser):
     # @return:
     #   0* - is last line number in header
     #   1* - avg height header's 
-    def _setXCenter(self, lineNumber: int, allLine: list[str]) -> int:
-        xStart = int(allLine[lineNumber].split()[6])
-
-        lineNumber += 2
-        while lineNumber < len(allLine):
-            if allLine[lineNumber].find(self.ALL_WORDS_FOR_SOURCH[self.language]['lastWord']) != -1:
-                xLastWord = int(allLine[lineNumber].split()[6])
-                widthLastWord = int(allLine[lineNumber].split()[8])
-                
-                self.xCenterResourse = round((xLastWord + widthLastWord + xStart) / 2 + self.indentSide)
-
-                return lineNumber
-            lineNumber += 1
-
-        return -1
-
-    def _setNorthEastEdgeCell(self, lineNumber: int, allLine: list[str], bottomEdge: int):
-
-        while lineNumber < len(allLine):
-            lineItem = allLine[lineNumber].split()
-            if len(lineItem) == 12:
-
-                xNow = int(lineItem[6])
-                yNow = int(lineItem[7])
-
-                if self.yStartResourse is None or yNow > bottomEdge and xNow < self.xStartResourse:
-                    self.xStartResourse = xNow
-                    self.yStartResourse = yNow
-
-            lineNumber += 1
+    def _setXCenter(self, wordUnderHeader: pd.DataFrame) -> int:
         
-        self.xStartResourse += self.indentSide - self.BONUS_MARGING
-        self.yStartResourse += self.indentTop - self.BONUS_MARGING
+        leftLimit = wordUnderHeader.iloc[0]['left']
+        rightLimit = wordUnderHeader.iloc[-1][['left', 'width']].sum()
 
-        return True
+        return round ( (rightLimit + leftLimit) / 2 )
+
+    def __getBottomLimit(self, lineNumber: int, dataFrameFindWord: pd.DataFrame) -> int:
+
+        wordLast = dataFrameFindWord[lineNumber:].loc[dataFrameFindWord['text'].str.contains(self.ALL_WORDS_FOR_SOURCH[self.language]['lastWord'], case = False)]
+        if wordLast.empty:
+            return None
+        
+        return wordLast.iloc[0][['top', 'height']].sum() + self.Y_SIDE_EPS
+
+    def __getLeftEdgeCell(self, dataFrameFindWord: pd.DataFrame, xCenter: int):
+
+        width, height =  dataFrameFindWord[['width', 'height']].iloc[0] // 4 * 4
+        
+        return xCenter - width / height * 95
 
     MAX_ROW_WITH_RESOURCE = 3
     MAX_COLUM_WITH_RESOURCE = 3
 
     def _setResource(self) -> bool:
 
-        for rowNumebr in range(self.MAX_ROW_WITH_RESOURCE):
-            for columnNumber in range(self.MAX_COLUM_WITH_RESOURCE):
+        with ThreadPoolExecutor(9) as threadPool:
 
-                coordinateCrop = [
-                        self.xStartResourse + (self.cubeSideSize + self.grapBetweenCube) * columnNumber - self.BONUS_MARGING,
-                        self.yStartResourse + (self.cubeSideSize + self.grapBetweenCube) * rowNumebr - self.BONUS_MARGING, 
-                        self.xStartResourse + self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * columnNumber + self.BONUS_MARGING,
-                        self.yStartResourse +  self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * rowNumebr + self.BONUS_MARGING
-                ]
+            threadWaitMarkers = []
 
-                if coordinateCrop[2] > self.xSize or coordinateCrop[3] > self.ySize:
-                    return False
-
-                cellImage = self.fullProfileImage.crop(coordinateCrop)
-                cellImage = self._convertImageOnContrast(cellImage, self.textColor)
-                if self._isSave:
-                    cellImage.save('result/a%d%d0.png' % (rowNumebr, columnNumber))
-
-                coordinateCrop = (0, 0, self.cubeSideSize, cellImage.size[1] / 4)
-                valueImg = cellImage.crop(coordinateCrop)
-                if self._isSave:
-                    valueImg.save('result/a%d%d1.png' % (rowNumebr, columnNumber))
-                valueResource: str = pytesseract.image_to_string(valueImg, config='--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789')
-
-                coordinateCrop = (0, cellImage.size[1] / 2, self.cubeSideSize, cellImage.size[1])
-                nameImg = cellImage.crop(coordinateCrop)
-                if self._isSave:
-                    nameImg.save('result/a%d%d2.png' % (rowNumebr, columnNumber))
-                nameResource: str = self.__wordSimplification(pytesseract.image_to_string(nameImg, lang = self.language), self.language)
-
-                if nameResource == '':
-                    return True
-                
-                for resourceIter in self.ALL_RESOURCE:
+            for rowNumebr in range(self.MAX_ROW_WITH_RESOURCE):
+                for columnNumber in range(self.MAX_COLUM_WITH_RESOURCE):
+                    threadWaitMarkers.append(threadPool.submit(self.__extractResourceFromCell, rowNumebr, columnNumber))
                     
-                    if resourceIter.isThisResource(nameResource, self.language):
 
-                        self.__resourses[resourceIter] = int(valueResource)
+            wait(threadWaitMarkers)
+    
+    def __extractResourceFromCell(self, rowNumber: int, columnNumber: int):
+        coordinateCrop = [
+            self.xStartResourse + (self.cubeSideSize + self.grapBetweenCube) * columnNumber - self.BONUS_MARGING,
+            self.yStartResourse + (self.cubeSideSize + self.grapBetweenCube) * rowNumber - self.BONUS_MARGING, 
+            self.xStartResourse + self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * columnNumber + self.BONUS_MARGING,
+            self.yStartResourse +  self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * rowNumber + self.BONUS_MARGING
+        ]
 
-                        if self.__rank is not None:
+        if coordinateCrop[2] > self.xSize or coordinateCrop[3] > self.ySize:
+            return
 
-                            if resourceIter.getQuantityOnRank(self.__rank) <= self.__resourses[resourceIter]:
-                                self.__enoughQuantityResource += 1
+        cellImage = self.fullProfileImage.crop(coordinateCrop)
+        cellImage = self._convertImageOnContrast(cellImage, self.textColor)
+        if self._isSave:
+            cellImage.save('result/a%d%d0.png' % (rowNumber, columnNumber))
 
-                                if self.__enoughQuantityResource == self.quantityNeedTips:
-                                    return True
+        coordinateCrop = (0, 0, self.cubeSideSize, cellImage.size[1] / 4)
+        valueImg = cellImage.crop(coordinateCrop)
+        if self._isSave:
+            valueImg.save('result/a%d%d1.png' % (rowNumber, columnNumber))
+        valueResource: str = pytesseract.image_to_string(valueImg, config='--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789')
 
-                        break
+        coordinateCrop = (0, cellImage.size[1] / 2, self.cubeSideSize, cellImage.size[1])
+        nameImg = cellImage.crop(coordinateCrop)
+        if self._isSave:
+            nameImg.save('result/a%d%d2.png' % (rowNumber, columnNumber))
+        nameResource: str = self.__wordSimplification(pytesseract.image_to_string(nameImg, lang = self.language), self.language)
 
-        return True
+        if nameResource == '':
+            return
+        
+        for resourceIter in self.ALL_RESOURCE:
+            
+            if resourceIter.isThisResource(nameResource, self.language):
+                self.__resourceAddLocker.acquire( timeout = 10)
+                self.__resourses[resourceIter] = int(valueResource)
+
+                if self.__rank is not None and resourceIter.getQuantityOnRank(self.__rank) <= self.__resourses[resourceIter]:
+
+                    self.__enoughQuantityResource += 1
+
+                self.__resourceAddLocker.release()
+                break
 
     @timeout(20)
     def _setParam(self):
+        print('Cantch image')
+        from time import time
+        t = time()
 
-        coordinateCrop = (self.indentSide, self.indentTop, self.xSize - self.indentSide, self.indentBottom)
-        imageCrop = self.fullProfileImage.crop(coordinateCrop)
-
+        print('Choose languge', time() - t)
         #Choose languge 
 
-        if not self._chooseLanguage(imageCrop):
+        if not self._chooseLanguage(self.fullProfileImage):
             return False
-        
-        allWord: str = pytesseract.image_to_data(imageCrop, lang = self.language)
-        allLine = allWord.split('\n')
-        # print(allWord)
-
+        dataFrameFindWord: pd.DataFrame = pytesseract.image_to_data(self.fullProfileImage, lang = self.language, output_type = 'data.frame')
+        dataFrameFindWord = dataFrameFindWord.dropna(subset = ['text', ]).reset_index()
+        print('Set Color', time() - t)
         # Set Color
 
-        lineNumber = self._setTextColor(self.ALL_WORDS_FOR_SOURCH[self.language]['injector'], allLine = allLine, imageWithText = imageCrop, language = self.language)
+        lineNumber = self._setTextColor(self.ALL_WORDS_FOR_SOURCH[self.language]['injector'], dataFrameFindWord = dataFrameFindWord, imageWithText = self.fullProfileImage, language = self.language)
 
         if lineNumber == -1:
             return False
-
+        
+        wordUnderHeader, lineNumber = self.__extractWordUnderHeader(lineNumber, dataFrameFindWord)
+        print('Select Name', time() - t)
         # Select Name
+        #TODO: redo in for and check time 
 
-        lineNumber = self._searchUserName(lineNumber, allLine)
-
-        if self.__userName is None:
+        if not self._searchUserName(wordUnderHeader):
             return False
-        
-        # Set center header
 
-        lineNumber = self._setXCenter(lineNumber, allLine)
 
-        if lineNumber == -1:
-            return False
-        
+        print('Find first cell', time() - t)
         # Find first cell
-        bottomEdge: int = int(allLine[lineNumber].split()[7]) + self.Y_SIDE_EPS
-        if not self._setNorthEastEdgeCell(lineNumber + 1, allLine, bottomEdge):
-            return False
+        xCenterResourse = self._setXCenter(wordUnderHeader)
+        self.yStartResourse: int = self.__getBottomLimit(lineNumber, dataFrameFindWord)
+        self.xStartResourse: int = self.__getLeftEdgeCell(wordUnderHeader, xCenterResourse)
 
+        print('Set cell Size', time() - t)
         # Set cell Size
-        self.cubeSideSize = round( ( self.xCenterResourse - self.xStartResourse ) / ( 1.5 + self.INTERVAL_BETWEEN_CELL_PROPORTION ) )
+        self.cubeSideSize = round( ( xCenterResourse - self.xStartResourse ) / ( 1.5 + self.INTERVAL_BETWEEN_CELL_PROPORTION ) )
         self.grapBetweenCube = round( self.cubeSideSize * self.INTERVAL_BETWEEN_CELL_PROPORTION )
 
+        print('Extract resource ', time() - t)
         # Extract resource 
         self._setResource()
-
+        print('Finis with resource ', time() - t, self.__resourses)
         return True
 
     @property
