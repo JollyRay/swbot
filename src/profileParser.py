@@ -64,6 +64,8 @@ def loadParam() -> str:
     return None
     
 #Utility
+MINIMUM_PART_MATCH = 0.75
+
 calcColorDifference = lambda firstPixle, secondPixel: abs(np.int16(firstPixle[0]) - np.int16(secondPixel[0])) + abs(np.int16(firstPixle[1]) - np.int16(secondPixel[1])) + abs(np.int16(firstPixle[2]) - np.int16(secondPixel[2]))
 
 calcResourceEval = lambda rank, baseValue, formula: eval( formula, {'sqrt': sqrt, 'exp': exp, 'rank': rank, 'baseValue': baseValue} )
@@ -112,7 +114,7 @@ class ProfileParser:
         if len(differenceColor[0]) == 0:
             return None
 
-        return differenceColor[0][np.argmax(differenceColor[1])][:3]
+        return tuple(differenceColor[0][np.argmax(differenceColor[1])][:3])
         
     def _setTextColor(self, injectorWord: str, startLineNumber: int = 0, dataFrameFindWord: pd.DataFrame | None = None, imageWithText: Image.Image | None = None, language: str | None = None) -> int:
 
@@ -143,7 +145,6 @@ class ProfileParser:
 
         imageWithInjection = imageWithText.crop(coordinateCrop)
 
-
         symblesOfWord = pytesseract.image_to_boxes(imageWithInjection, lang = language, output_type = Output.DICT)
 
         if len(symblesOfWord) == 0:
@@ -162,9 +163,12 @@ class ProfileParser:
         if self.textColor is None:
             return -1
 
+        if self._isSave:
+            Image.new('RGB', size = (100,100), color = self.textColor).save('result/color.png')
+
         return seriesWithName.index[0]
 
-    def _convertImageOnContrast(self, mainImage: Image.Image, selectColor: tuple[int] | None = None, colorEsp: int = 50) -> Image.Image:
+    def _convertImageOnContrast(self, mainImage: Image.Image, selectColor: tuple[int] | None = None, colorEsp: int = 128) -> Image.Image:
 
         if selectColor is None:
             selectColor = self.textColor
@@ -191,8 +195,14 @@ class ProfileParser:
 
                     if isWithAlpha:
                         pix[iter][jtor] = [0, 0, 0, 255]
+
+                        if iter != 0:
+                            pix[iter-1][jtor] = [0, 0, 0, 255]
                     else:
                         pix[iter][jtor] = [0, 0, 0]
+
+                        if iter != 0:
+                            pix[iter-1][jtor] = [0, 0, 0]
                     
         return Image.fromarray(pix)
 
@@ -406,7 +416,7 @@ class MainProfileParser(ProfileParser):
                 clanName = self.__findClanName(top, bot, leftBorder, rightBorder).strip()
 
                 for exampleClanName in self.__clanNames:
-                    if ratio(clanName, exampleClanName, processor = wordSimplificationEng) > 0.9:
+                    if ratio(clanName, exampleClanName, processor = wordSimplificationEng) > MINIMUM_PART_MATCH:
                         self.__generatorRowOfSpecialColor = generatorRowOfSpecialColor
                         self.__clanName = exampleClanName
                         return clanName
@@ -519,10 +529,23 @@ class Resource:
         else:
 
             return int( calcResourceEval(min(rank, self.MAX_RANK), self.baseValue, self.otherSaling[maxRankForOtherScaling]) )
-        
-    def isThisResource(self, word: str, language: str):
 
-        return ratio(self.names[language], word, processor=wordSimplificationEng if language == 'eng' else wordSimplificationRus) > 0.9
+    def getName(self, language: str):
+        return self.names[language]
+
+    def isThisResource(self, words: str, language: str):
+        quanityRight = 0
+        realNameWords = self.names[language].split()
+
+        for realNameWord in realNameWords:
+            for word in words.split():
+
+                if ratio(realNameWord, word, processor=wordSimplificationEng if language == 'eng' else wordSimplificationRus) > MINIMUM_PART_MATCH:
+                    quanityRight += 1
+                    break
+
+
+        return quanityRight == len(realNameWords)
 
 class ResourceProfileParser(ProfileParser):
 
@@ -587,7 +610,7 @@ class ResourceProfileParser(ProfileParser):
         self._setParam()
 
     INTERVAL_BETWEEN_CELL_PROPORTION = 0.15
-    Y_SIDE_EPS = 10
+    Y_SIDE_EPS = 20
 
     def _setUserName(self, x: int, y: int, width: int, height: int) -> bool:
 
@@ -650,6 +673,9 @@ class ResourceProfileParser(ProfileParser):
     #   0* - is last line number in header
     #   1* - avg height header's 
     def _setXCenter(self, wordUnderHeader: pd.DataFrame) -> int:
+
+        if wordUnderHeader.shape[0] != 2:
+            return None
         
         leftLimit = wordUnderHeader.iloc[0]['left']
         rightLimit = wordUnderHeader.iloc[-1][['left', 'width']].sum()
@@ -666,10 +692,13 @@ class ResourceProfileParser(ProfileParser):
 
     def __getLeftEdgeCell(self, dataFrameFindWord: pd.DataFrame, xCenter: int):
 
-        width, height =  dataFrameFindWord[['width', 'height']].iloc[0] // 4 * 4
-        
-        return xCenter - width / height * 95
+        if dataFrameFindWord.shape[0] != 2:
+            return None
 
+        xWordFirst, wifthWordLast, xWordLast =  dataFrameFindWord[['width', 'left']].values.ravel()[[False, True, True, True]]
+        
+        return xCenter - ( wifthWordLast + xWordLast - xWordFirst)
+    
     MAX_ROW_WITH_RESOURCE = 3
     MAX_COLUM_WITH_RESOURCE = 3
 
@@ -728,53 +757,47 @@ class ResourceProfileParser(ProfileParser):
                     self.__enoughQuantityResource += 1
 
                 self.__resourceAddLocker.release()
-                break
+                return
 
     @timeout(20)
     def _setParam(self):
-        print('Cantch image')
-        from time import time
-        t = time()
 
-        print('Choose languge', time() - t)
         #Choose languge 
 
         if not self._chooseLanguage(self.fullProfileImage):
             return False
         dataFrameFindWord: pd.DataFrame = pytesseract.image_to_data(self.fullProfileImage, lang = self.language, output_type = 'data.frame')
         dataFrameFindWord = dataFrameFindWord.dropna(subset = ['text', ]).reset_index()
-        print('Set Color', time() - t)
+
         # Set Color
 
         lineNumber = self._setTextColor(self.ALL_WORDS_FOR_SOURCH[self.language]['injector'], dataFrameFindWord = dataFrameFindWord, imageWithText = self.fullProfileImage, language = self.language)
+        
+        xCenterResourse = self._setXCenter(dataFrameFindWord.iloc[lineNumber:lineNumber+2])
+        self.xStartResourse: int = self.__getLeftEdgeCell(dataFrameFindWord.iloc[lineNumber:lineNumber+2], xCenterResourse)
 
         if lineNumber == -1:
             return False
         
         wordUnderHeader, lineNumber = self.__extractWordUnderHeader(lineNumber, dataFrameFindWord)
-        print('Select Name', time() - t)
+
         # Select Name
-        #TODO: redo in for and check time 
 
         if not self._searchUserName(wordUnderHeader):
             return False
 
-
-        print('Find first cell', time() - t)
         # Find first cell
-        xCenterResourse = self._setXCenter(wordUnderHeader)
-        self.yStartResourse: int = self.__getBottomLimit(lineNumber, dataFrameFindWord)
-        self.xStartResourse: int = self.__getLeftEdgeCell(wordUnderHeader, xCenterResourse)
 
-        print('Set cell Size', time() - t)
+        self.yStartResourse: int = self.__getBottomLimit(lineNumber, dataFrameFindWord)
+
         # Set cell Size
+
         self.cubeSideSize = round( ( xCenterResourse - self.xStartResourse ) / ( 1.5 + self.INTERVAL_BETWEEN_CELL_PROPORTION ) )
         self.grapBetweenCube = round( self.cubeSideSize * self.INTERVAL_BETWEEN_CELL_PROPORTION )
 
-        print('Extract resource ', time() - t)
         # Extract resource 
         self._setResource()
-        print('Finis with resource ', time() - t, self.__resourses)
+
         return True
 
     @property
