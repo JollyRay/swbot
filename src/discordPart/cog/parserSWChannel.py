@@ -293,16 +293,17 @@ def attemptExtractRank(comment: str) -> int:
 
         isLegendary = comment.find('лег') >= 0
 
-        allNumbersInComment = re.findall( r'[^-._a-zA-Z0-9]\d{1,2}[ -]', comment )
+        allNumbersInComment = re.findall( '[^-._a-zA-Z0-9]\d{1,2}[ \n\r-]', comment, re.M )
 
         if len(allNumbersInComment) == 1:
             return int(allNumbersInComment[0][1:-1]) + 30 * isLegendary
         
         if len(allNumbersInComment) > 1:
             
-            for i in range(6):
-                if int(allNumbersInComment[i][1:-1]) != i:
-                    return int(allNumbersInComment[i][1:-1]) + 30 * isLegendary
+            for indexLine in range(1, 7):
+
+                if int(allNumbersInComment[indexLine - 1][1:-1]) != indexLine:
+                    return int(allNumbersInComment[indexLine - 1][1:-1]) + 30 * isLegendary
     
     # On indexed rows
 
