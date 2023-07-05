@@ -431,6 +431,7 @@ class ResourceParserQuestion(BaseWithButtonView):
             await interaction.response.defer()
             return
         await interaction.response.defer()
+        await self._disableAllButton()
         await finishWithMember(currentMessage = self.__currentMessage, thread = self.__currentThread)
 
     @discord.ui.button( label = 'Нет', style = discord.ButtonStyle.red)
