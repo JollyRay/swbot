@@ -327,8 +327,7 @@ class ProfileParser:
 
 class MainProfileParser(ProfileParser):
 
-    #TODO: remove defualt clanNames
-    def __init__(self, fullProfileImage: Image.Image | str, clanNames: list[str] = ['SacredWizardsCult', 'SacredWizardsDeceptio', 'SacredWizardsMortuus', 'SacredWizardsVita']) -> None:
+    def __init__(self, fullProfileImage: Image.Image | str, clanNames: list[str]) -> None:
         super().__init__(fullProfileImage)
 
         self.__userName: None | str = None

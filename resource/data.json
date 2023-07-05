@@ -14,16 +14,18 @@
         },
         "SacredWizardsMortuus": {
             "role": 1120838729674793050,
-            "alert_channel": null
+            "alert_channel": 1120588839686246400
         }
     },
+    "role_without_clan": 1125848113245069422,
     "all_moderator": [
         275357556862484484
     ],
     "start_roles": [
         1003747679404302346
     ],
-    "profile_info_channel": 1120588622370979972,
+    "profile_info_channel": 1121277682026557540,
+    "arbitration_channel": 1121277682026557540,
     "profile_channel": 1120588622370979972,
     "resource_channel": 1120588706403844126,
     "guild_id": 1002967941895180329,
