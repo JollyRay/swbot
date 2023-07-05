@@ -365,7 +365,7 @@ class MainProfileParser(ProfileParser):
             )
         
         experienceImage = self.fullProfileImage.crop(coordinateCrop)
-        experienceStr = pytesseract.image_to_string(experienceImage, config='--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789')
+        experienceStr = pytesseract.image_to_string(experienceImage, config='-c tessedit_char_whitelist=0123456789')
         exparienceInt = int(experienceStr)
 
         if exparienceInt < self.__EXPERIENCE_FOR_SUM_30_RANK:
@@ -757,7 +757,7 @@ class ResourceProfileParser(ProfileParser):
         valueImg = cellImage.crop(coordinateCrop)
         if self._isSave:
             valueImg.save('result/a%d%d1.png' % (rowNumber, columnNumber))
-        valueResource: str = pytesseract.image_to_string(valueImg, config='--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789')
+        valueResource: str = pytesseract.image_to_string(valueImg, config='-c tessedit_char_whitelist=0123456789')
 
         coordinateCrop = (0, cellImage.size[1] / 2, self.cubeSideSize, cellImage.size[1])
         nameImg = cellImage.crop(coordinateCrop)
