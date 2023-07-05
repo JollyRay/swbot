@@ -377,9 +377,14 @@ class MainProfileParser(ProfileParser):
 
     __TOP_CLAN_NAME_BORDER_PROPROTION = 109/177
     __BOTTOM_CLAN_NAME_BORDER_PROPROTION = 140/177
+    __MIN_IMAGE_HEIGHT = 20
+    __MIN_IMAGE_WIDTH = 20
 
     def __findClanName(self, topBorder: int, bottomBorder: int, leftBorder: int, rightBorder: int) -> str:
         clanSectorHeight = bottomBorder - topBorder
+
+        if clanSectorHeight < self.__MIN_IMAGE_HEIGHT or rightBorder - leftBorder < self.__MIN_IMAGE_WIDTH:
+            return ''
 
         topBorderSectorOfClanName = (int) (topBorder + clanSectorHeight * self.__TOP_CLAN_NAME_BORDER_PROPROTION)
         bottomBorderSectorOfClanName = (int) (topBorder + clanSectorHeight * self.__BOTTOM_CLAN_NAME_BORDER_PROPROTION)
@@ -390,8 +395,8 @@ class MainProfileParser(ProfileParser):
 
         return pytesseract.image_to_string(clanNameImage)
 
-    __START_COLUMN_PROPOTION = 0.7
-    __STEP_COLUMN_PROPOTION = 0.05
+    __START_COLUMN_PROPOTION = 0.6
+    __STEP_COLUMN_PROPOTION = 0.03
 
     def __extractClanName(self):
 
@@ -406,24 +411,41 @@ class MainProfileParser(ProfileParser):
                 firstLineInfo = self._findFirstLineWithSpecialColor(leftMarge, where = DIRECTION.SOUTH)
                 if firstLineInfo is None:
                     continue
-                bottomBorder, leftBorder, rightBorder, specialColor = firstLineInfo
-                generatorRowOfSpecialColor = self._generateLineWithSpecialColor(bottomBorder, leftBorder + 1, specialColor)
+                bottomBorder1, leftBorder, rightBorder, specialColor = firstLineInfo
+                generatorRowOfSpecialColor = self._generateLineWithSpecialColor(bottomBorder1, leftBorder + 1, specialColor)
 
-                next(generatorRowOfSpecialColor)
-                bot = next(generatorRowOfSpecialColor)[0]
-                top = next(generatorRowOfSpecialColor)[0]
+                topBorder1 = next(generatorRowOfSpecialColor)[0]
+
+                clanName = self.__findClanName(topBorder1, bottomBorder1, leftBorder, rightBorder).strip()
+
+                realClanName = self.__compareExtractAndExistClanName(clanName, generatorRowOfSpecialColor)
+
+                if realClanName is not None:
+                    return realClanName
+
+                bottomBorder2, leftBorder, rightBorder = next(generatorRowOfSpecialColor)
+                topBorder2 = next(generatorRowOfSpecialColor)[0]
                 
-                clanName = self.__findClanName(top, bot, leftBorder, rightBorder).strip()
+                clanName = self.__findClanName(topBorder2, bottomBorder2, leftBorder, rightBorder).strip()
 
-                for exampleClanName in self.__clanNames:
-                    if ratio(clanName, exampleClanName, processor = wordSimplificationEng) > MINIMUM_PART_MATCH:
-                        self.__generatorRowOfSpecialColor = generatorRowOfSpecialColor
-                        self.__clanName = exampleClanName
-                        return clanName
+                realClanName = self.__compareExtractAndExistClanName(clanName, generatorRowOfSpecialColor)
+
+                if realClanName is not None:
+                    return realClanName
                 
             except StopIteration: pass
             finally:
                 iteration += 1
+        return None
+    
+    def __compareExtractAndExistClanName(self, clanName, rightGenerator):
+
+        for exampleClanName in self.__clanNames:
+            if ratio(clanName, exampleClanName, processor = wordSimplificationEng) > MINIMUM_PART_MATCH:
+                self.__generatorRowOfSpecialColor = rightGenerator
+                self.__clanName = exampleClanName
+                return clanName
+            
         return None
 
     __FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE = 7
