@@ -453,10 +453,12 @@ class MainProfileParser(ProfileParser):
 
     def __extractUserName(self):
 
-        pixelWithUnderLine, _, _, _ = self._findFirstLineWithSpecialColor(self.xSize - self.__FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE, minLineSize = 1, startBottomPixel = 0, where = DIRECTION.NORTH)
+        UnderLineInfo = self._findFirstLineWithSpecialColor(self.xSize - self.__FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE, minLineSize = 1, startBottomPixel = 0, where = DIRECTION.NORTH)
 
-        if pixelWithUnderLine == None:
+        if UnderLineInfo == None:
             return None
+        
+        pixelWithUnderLine = UnderLineInfo[0]
         
         leftMarge = self.fullProfileImage.size[0] * self.__SIDE_MARGE_PROPOTION
         topMarge = pixelWithUnderLine * self.__TOP_MARGE_PROPOTION
