@@ -1,4 +1,5 @@
-[a-z].png
+resource/profile/*.png
+resource/resource/*.png
 crop.png
 name.png
 result/*

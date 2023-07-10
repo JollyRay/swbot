@@ -11,6 +11,7 @@ from Levenshtein import ratio
 from asyncio import sleep 
 from collections.abc import Iterable
 from enum import Enum
+from discordPart.cog.patrenCog import SWStandartCog
 
 swBot = None
 PREFIX = '♂'
@@ -504,7 +505,7 @@ class ProfileMessageWithoutHeaderView(BaseWithButtonView):
     def thread(self, newThread):
         self.__thread = newThread
 
-class SWCog(commands.Cog, name='SWDataCog'):
+class SWCog(SWStandartCog, name='SWDataCog'):
 
     #############################
     #                           #
@@ -517,6 +518,15 @@ class SWCog(commands.Cog, name='SWDataCog'):
         
         self.__superMod = False
         self.__superModers = [275357556862484484]
+
+        self.__guild = None
+        self.__clanLinks = None
+        self.__roleWithoutClan = None
+        self.__allModers = None
+        self.__startRoles = None
+        self.__profileParseReportChannel = None
+        self.__profileChannel = None
+        self.__resourceChannel = None
         
     @commands.Cog.listener()
     async def on_ready(self):
@@ -1077,7 +1087,7 @@ class SWCog(commands.Cog, name='SWDataCog'):
 #                           #
 #############################
 
-class SWUserCog(commands.Cog, name='SWUserCog'):
+class SWUserCog(SWStandartCog, name='SWUserCog'):
 
     def __init__(self, clinet: commands.Bot):
         self.bot = clinet

@@ -25,7 +25,12 @@
         1003747679404302346
     ],
     "profile_info_channel": 1121277682026557540,
-    "arbitration_channel": 1121277682026557540,
+    "alerts": {
+        "arbitration_channel": 1127620793745031389,
+        "aya_channel": 1127620793745031389,
+        "arbitration_role": 1126978482715492422,
+        "aya_role": 1126978597119340775
+    },
     "profile_channel": 1120588622370979972,
     "resource_channel": 1120588706403844126,
     "guild_id": 1002967941895180329,
