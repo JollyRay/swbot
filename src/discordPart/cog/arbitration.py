@@ -387,3 +387,10 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
     def __isFobidden(self, authorId: int):
         return self.bot.cogs.get('SWDataCog') is None or not (authorId in self.bot.cogs.get('SWDataCog').moderatorsId)
     
+    def getHelpMessage(self) -> str:
+        return f'''=====Alert Command======
+{PREFIX}setAAC <channel/id> - set all channel for alert
+{PREFIX}setARC <channel/id> - set only arbitration
+{PREFIX}setAYAC <channel/id> - set only aya channel for alert
+{PREFIX}setARR <role/id> - set role for arbitration alert
+{PREFIX}setAYR <role/id> - set role for aya alert'''

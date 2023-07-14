@@ -99,7 +99,7 @@ class _CommandStuct:
     def getDescription(self, prefix: str = PREFIX, *args) -> str:
 
         if self._createDescription is None:
-            return None
+            return ''
         
         if type(self._createDescription) is str:
             return self._createDescription
@@ -207,9 +207,6 @@ class _CommandProperty:
     ShowStage: _CommandStuct = _CommandStuct(
         name = 'show',
         createDescription = lambda prefix: '%sshow - show all info' % (prefix)
-    )
-    Help: _CommandStuct = _CommandStuct(
-        name = 'help'
     )
 
 class _TempThreadWithData:
@@ -1035,20 +1032,6 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
             await ctx.send('Set super mod' if self.__superMod else 'Set noraml mod')
 
-    @commands.command(name = _CommandProperty.Help.commandName)
-    async def helpSWCommand(self, ctx: commands.Context, *args, member: discord.Member = None):
-        if not self.__verifyAccess(ctx, _CommandProperty.Help): return
-
-        commandDiscript = '====Command===='
-
-        for commandName, commandProperty in vars(_CommandProperty).items():
-            if not commandName.startswith('__'):
-                discription = commandProperty.getDescription(PREFIX)
-                if discription:
-                    commandDiscript += f'\n{discription}'
-
-        await ctx.send(commandDiscript)
-
     def __verifyAccess(self, ctx: commands.Context, targetCommandObject: _CommandStuct) -> bool:
         if ctx.author.id in self.__allModers or ctx.author.id in self.__superMod:
             return True
@@ -1081,13 +1064,25 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
         return (False, targetCommandObject.getFailedAnswer(name, id))
 
+    def getHelpMessage(self) -> str:
+
+        listOfCommandDescription: list[str] = ['====Command====', ]
+
+        for commandProperty in vars(_CommandProperty).values():
+
+            if type(commandProperty) is _CommandStuct:
+
+                listOfCommandDescription.append(commandProperty.getDescription(PREFIX))
+        
+        return '\n'.join(listOfCommandDescription)
+
 #############################
 #                           #
 #       USER HANDLER        #
 #                           #
 #############################
 
-class SWUserCog(SWStandartCog, name='SWUserCog'):
+class SWUserCog(commands.Cog, name='SWUserCog'):
 
     def __init__(self, clinet: commands.Bot):
         self.bot = clinet
