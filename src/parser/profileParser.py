@@ -221,7 +221,7 @@ class ProfileParser:
 
         return (leftLimit, rightLimit)
 
-    def _findFirstLineWithSpecialColor(self, lineNumber: int, colorEps: int = 50, minLineSize: int = 128, startBottomPixel: float | int = 0.1, where: Enum = DIRECTION.SOUTH):
+    def _findFirstLineWithSpecialColor(self, lineNumber: int, colorEps: int = 50, minLineSize: int = 128, startBottomPixel: float | int = 0.1, where: Enum = DIRECTION.SOUTH, isBrightest: bool = False):
 
         # Determination of direction
 
@@ -258,21 +258,41 @@ class ProfileParser:
 
         # Traversal of line
 
+        targetInfo = None
+
         for pixelIndex in directionRange:
 
             nowColor = colorLine[pixelIndex]
             # print(pixelIndex, nowColor, lastColor, calcColorDifference(nowColor, lastColor))
+            if targetInfo:
+                
+                if all( (targetInfo[3][0] < nowColor[0], targetInfo[3][1] < nowColor[1], targetInfo[3][2] < nowColor[2])):
 
-            if calcColorDifference(nowColor, lastColor) > colorEps:
+                    leftBorder, rightBorder = self._getLimitHorizonBorder(pixelIndex, lineNumber, nowColor)
 
-                leftBorder, rightBorder = self._getLimitHorizonBorder(pixelIndex, lineNumber, nowColor)
+                    if rightBorder - leftBorder + 1 > minLineSize:
+                        targetInfo = (pixelIndex, leftBorder, rightBorder, nowColor)
 
-                if rightBorder - leftBorder + 1 > minLineSize:
-                    return (pixelIndex, leftBorder, rightBorder, nowColor)
+                elif any( (targetInfo[3][0] > lastColor[0], targetInfo[3][1] > lastColor[1], targetInfo[3][2] > lastColor[2]) ):
+
+                    return targetInfo
+                
+            else:
+
+                if calcColorDifference(nowColor, lastColor) > colorEps:
+
+                    leftBorder, rightBorder = self._getLimitHorizonBorder(pixelIndex, lineNumber, nowColor)
+
+                    if rightBorder - leftBorder + 1 > minLineSize:
+
+                        if isBrightest:
+                            targetInfo = (pixelIndex, leftBorder, rightBorder, nowColor)
+                        else:
+                            return (pixelIndex, leftBorder, rightBorder, nowColor)
                 
             lastColor = nowColor
 
-        return None
+        return targetInfo
             
     def _generateLineWithSpecialColor(self, rowNumber: int, columnNumber: int, specialColor: list[np.uint8], colorEps: int = 50, minLineSize: int = 128):
 
@@ -327,8 +347,8 @@ class ProfileParser:
 
 class MainProfileParser(ProfileParser):
 
-    def __init__(self, fullProfileImage: Image.Image | str, clanNames: list[str]) -> None:
-        super().__init__(fullProfileImage)
+    def __init__(self, fullProfileImage: Image.Image | str, clanNames: list[str], isSave: bool = False) -> None:
+        super().__init__(fullProfileImage, isSave)
 
         self.__userName: None | str = None
         self.__clanName: None | str = None
@@ -392,6 +412,9 @@ class MainProfileParser(ProfileParser):
 
         clanNameImage = self.fullProfileImage.crop(coordinateCrop)
 
+        if self._isSave:
+            clanNameImage.save('result/clan.png')    
+
         return pytesseract.image_to_string(clanNameImage)
 
     __START_COLUMN_PROPOTION = 0.6
@@ -407,7 +430,7 @@ class MainProfileParser(ProfileParser):
 
                 leftMarge = (int) (self.xSize * (self.__START_COLUMN_PROPOTION + self.__STEP_COLUMN_PROPOTION * iteration))
 
-                firstLineInfo = self._findFirstLineWithSpecialColor(leftMarge, where = DIRECTION.SOUTH)
+                firstLineInfo = self._findFirstLineWithSpecialColor(leftMarge, where = DIRECTION.SOUTH, isBrightest = True)
                 if firstLineInfo is None:
                     continue
                 bottomBorder1, leftBorder, rightBorder, specialColor = firstLineInfo
@@ -448,30 +471,44 @@ class MainProfileParser(ProfileParser):
         return None
 
     __FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE = 7
+    __STEP_INDENT_HEADER_COLUMN_PROPOTION = 0.1
     __TOP_MARGE_PROPOTION = 0.2
     __SIDE_MARGE_PROPOTION = 0.3
+    __MIN_NAME_LETTERS = 3
 
     def __extractUserName(self):
+        indentValue = 0
+        step = int( self.ySize * self.__STEP_INDENT_HEADER_COLUMN_PROPOTION )
 
-        UnderLineInfo = self._findFirstLineWithSpecialColor(self.xSize - self.__FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE, minLineSize = 1, startBottomPixel = 0, where = DIRECTION.NORTH)
+        while (self.ySize > indentValue + self.__FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE):
+            underLineInfo = self._findFirstLineWithSpecialColor(self.xSize - self.__FOR_LEFT_COLUMN_FOR_FIND_NAME_UNDERLINE - indentValue, minLineSize = 1, startBottomPixel = 0, where = DIRECTION.NORTH)
 
-        if UnderLineInfo == None:
-            return None
-        
-        pixelWithUnderLine = UnderLineInfo[0]
-        
-        leftMarge = self.fullProfileImage.size[0] * self.__SIDE_MARGE_PROPOTION
-        topMarge = pixelWithUnderLine * self.__TOP_MARGE_PROPOTION
-        rightMarge = self.fullProfileImage.size[0] * ( 1 - self.__SIDE_MARGE_PROPOTION )
+            if underLineInfo == None:
+                return None
+            
+            pixelWithUnderLine = underLineInfo[0]
+            
+            leftMarge = self.fullProfileImage.size[0] * self.__SIDE_MARGE_PROPOTION
+            topMarge = pixelWithUnderLine * self.__TOP_MARGE_PROPOTION
+            rightMarge = self.fullProfileImage.size[0] * ( 1 - self.__SIDE_MARGE_PROPOTION )
 
-        coordinateCrop = (leftMarge, topMarge, rightMarge, pixelWithUnderLine)
+            coordinateCrop = (leftMarge, topMarge, rightMarge, pixelWithUnderLine)
 
-        userNameImage = self.fullProfileImage.crop(coordinateCrop)
+            userNameImage = self.fullProfileImage.crop(coordinateCrop)
 
-        usersName: list[str] = pytesseract.image_to_string(userNameImage)
+            if self._isSave:
+                userNameImage.save('result/profileName.png')
 
-        self.__userName = self._clearWord(usersName)
-        return self.__userName
+            usersName: str = pytesseract.image_to_string(userNameImage)
+
+            usersName = self._clearWord(usersName)
+
+            if len(usersName) >= self.__MIN_NAME_LETTERS:
+                return usersName
+            
+            indentValue += step
+
+        return ''
 
     @property
     def userName(self):

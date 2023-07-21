@@ -1,8 +1,14 @@
-resource/profile/*.png
-resource/resource/*.png
+# DEBUG
+
 crop.png
 name.png
 result/*
+
+
+# Main project
+
 __pycache__
 .env
+.vscode
 app.log
+pyrightconfig.json
