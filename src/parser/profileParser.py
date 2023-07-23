@@ -78,6 +78,7 @@ DIRECTION = Enum('Direction', ['NORTH', 'SOUTH', 'WEST', 'EAST'])
 class ProfileParser:
 
     BONUS_MARGING = 8
+    MAX_STEP_FOR_MARGING = 10
 
     def __init__(self, fullProfileImage: Image.Image | str, isSave: bool = False) -> None:
 
@@ -136,16 +137,21 @@ class ProfileParser:
         
 
         xStart, yStart, width, height = seriesWithName.iloc[0][7:11].values
-        coordinateCrop = (
-            max(xStart - self.BONUS_MARGING, 0),
-            max(yStart - self.BONUS_MARGING, 0),
-            min(xStart + self.BONUS_MARGING + width, self.xSize),
-            min(yStart + self.BONUS_MARGING + height, self.ySize)
-        )
 
-        imageWithInjection = imageWithText.crop(coordinateCrop)
+        for margin in range(self.BONUS_MARGING, self.BONUS_MARGING + self.MAX_STEP_FOR_MARGING):
+            coordinateCrop = (
+                max(xStart - margin, 0),
+                max(yStart - margin, 0),
+                min(xStart + margin + width, self.xSize),
+                min(yStart + margin + height, self.ySize)
+            )
 
-        symblesOfWord = pytesseract.image_to_boxes(imageWithInjection, lang = language, output_type = Output.DICT)
+            imageWithInjection = imageWithText.crop(coordinateCrop)
+
+            symblesOfWord = pytesseract.image_to_boxes(imageWithInjection, lang = language, output_type = Output.DICT)
+
+            if len(symblesOfWord) != 0:
+                break
 
         if len(symblesOfWord) == 0:
             return -1
@@ -178,34 +184,43 @@ class ProfileParser:
 
         pix = np.array(mainImage)
         if len(pix) > 0 and len(pix[0]) > 0:
-            isWithAlpha = len(pix[0][0]) == 4
-
+            if len(pix[0][0]) == 4:
+                pix = np.delete(pix, 3, 2)
+        
         for iter in range(pix.shape[0]):
 
             for jtor in range(pix.shape[1]):
 
                 if calcColorDifference(pix[iter][jtor], selectColor) > colorEsp:
 
-                    if isWithAlpha:
-                        pix[iter][jtor] = [255, 255, 255, 255]
-                    else:
-                        pix[iter][jtor] = [255, 255, 255]
+                    pix[iter][jtor] = [255, 255, 255]
 
                 else:
+                        
+                    pix[iter][jtor] = [0, 0, 0]
 
-                    if isWithAlpha:
-                        pix[iter][jtor] = [0, 0, 0, 255]
-
-                        if iter != 0:
-                            pix[iter-1][jtor] = [0, 0, 0, 255]
-                    else:
-                        pix[iter][jtor] = [0, 0, 0]
-
-                        if iter != 0:
-                            pix[iter-1][jtor] = [0, 0, 0]
+                    if iter != 0:
+                        pix[iter-1][jtor] = [0, 0, 0]
                     
         return Image.fromarray(pix)
 
+    def _getGarbageLineQuantity(self, resourceImage: Image) -> int:
+        
+        pixels = np.array(resourceImage)
+        pixelInLineQuantity = pixels.shape[0] - 1
+        
+        for lineNumber, line in enumerate(pixels[::-1]):
+    
+            for pixelNumber, pixel in enumerate(line):
+
+                if pixel[0] == 0:
+                    break
+
+                if pixelInLineQuantity == pixelNumber:
+                    return lineNumber
+
+        return pixels.shape[0]
+            
     def _getLimitHorizonBorder(self, rowNumber: int, columnNumber: int, pixelColor: list[np.uint8], colorEsp: int = 50, step: int = 1) -> tuple[int]:
         imgHorizonLine = self.fullProfileImage.crop((0, rowNumber, self.xSize, rowNumber + 1))
         pixelHorizonLine = np.array(imgHorizonLine)
@@ -652,8 +667,8 @@ class ResourceProfileParser(ProfileParser):
         }
     }
 
-    def __init__(self, fullProfileImage: Image.Image | str, rank: int | None = None) -> None:
-        super().__init__(fullProfileImage)
+    def __init__(self, fullProfileImage: Image.Image | str, rank: int | None = None, isSave: bool = False) -> None:
+        super().__init__(fullProfileImage, isSave=isSave)
 
         self.__resourses: dict[Resource, int] = {}
 
@@ -762,63 +777,26 @@ class ResourceProfileParser(ProfileParser):
     MAX_ROW_WITH_RESOURCE = 3
     MAX_COLUM_WITH_RESOURCE = 3
 
-    def _setResource(self) -> bool:
+    def __setResource(self) -> bool:
+        
+        if self.xSize < self.xStartResourse + self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * ( self.MAX_COLUM_WITH_RESOURCE - 1 ) + self.BONUS_MARGING:
+            return
 
         with ThreadPoolExecutor(9) as threadPool:
 
             threadWaitMarkers = []
 
-            for rowNumebr in range(self.MAX_ROW_WITH_RESOURCE):
+            for rowNumber in range(self.MAX_ROW_WITH_RESOURCE):
+                
+                if self.ySize < self.yStartResourse + self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * rowNumber + self.BONUS_MARGING:
+                    break
+
                 for columnNumber in range(self.MAX_COLUM_WITH_RESOURCE):
-                    threadWaitMarkers.append(threadPool.submit(self.__extractResourceFromCell, rowNumebr, columnNumber))
+                    threadWaitMarkers.append(threadPool.submit(self.__extractResourceFromCell, rowNumber, columnNumber))
                     
 
             wait(threadWaitMarkers)
     
-    def __extractResourceFromCell(self, rowNumber: int, columnNumber: int):
-        coordinateCrop = [
-            self.xStartResourse + (self.cubeSideSize + self.grapBetweenCube) * columnNumber - self.BONUS_MARGING,
-            self.yStartResourse + (self.cubeSideSize + self.grapBetweenCube) * rowNumber - self.BONUS_MARGING, 
-            self.xStartResourse + self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * columnNumber + self.BONUS_MARGING,
-            self.yStartResourse +  self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * rowNumber + self.BONUS_MARGING
-        ]
-
-        if coordinateCrop[2] > self.xSize or coordinateCrop[3] > self.ySize:
-            return
-
-        cellImage = self.fullProfileImage.crop(coordinateCrop)
-        cellImage = self._convertImageOnContrast(cellImage, self.textColor)
-        if self._isSave:
-            cellImage.save('result/a%d%d0.png' % (rowNumber, columnNumber))
-
-        coordinateCrop = (0, 0, self.cubeSideSize, cellImage.size[1] / 4)
-        valueImg = cellImage.crop(coordinateCrop)
-        if self._isSave:
-            valueImg.save('result/a%d%d1.png' % (rowNumber, columnNumber))
-        valueResource: str = pytesseract.image_to_string(valueImg, config='-c tessedit_char_whitelist=0123456789')
-
-        coordinateCrop = (0, cellImage.size[1] / 2, self.cubeSideSize, cellImage.size[1])
-        nameImg = cellImage.crop(coordinateCrop)
-        if self._isSave:
-            nameImg.save('result/a%d%d2.png' % (rowNumber, columnNumber))
-        nameResource: str = self.__wordSimplification(pytesseract.image_to_string(nameImg, lang = self.language), self.language)
-
-        if nameResource == '':
-            return
-        
-        for resourceIter in self.ALL_RESOURCE:
-            
-            if resourceIter.isThisResource(nameResource, self.language):
-                self.__resourceAddLocker.acquire( timeout = 10)
-                self.__resourses[resourceIter] = int(valueResource)
-
-                if self.__rank is not None and resourceIter.getQuantityOnRank(self.__rank) <= self.__resourses[resourceIter]:
-
-                    self.__enoughQuantityResource += 1
-
-                self.__resourceAddLocker.release()
-                return
-
     @timeout(20)
     def _setParam(self):
 
@@ -832,7 +810,7 @@ class ResourceProfileParser(ProfileParser):
         # Set Color
 
         lineNumber = self._setTextColor(self.ALL_WORDS_FOR_SOURCH[self.language]['injector'], dataFrameFindWord = dataFrameFindWord, imageWithText = self.fullProfileImage, language = self.language)
-        
+
         xCenterResourse = self._setXCenter(dataFrameFindWord.iloc[lineNumber:lineNumber+2])
         self.xStartResourse: int = self.__getLeftEdgeCell(dataFrameFindWord.iloc[lineNumber:lineNumber+2], xCenterResourse)
 
@@ -856,9 +834,145 @@ class ResourceProfileParser(ProfileParser):
         self.grapBetweenCube = round( self.cubeSideSize * self.INTERVAL_BETWEEN_CELL_PROPORTION )
 
         # Extract resource 
-        self._setResource()
+        self.__setResource()
 
         return True
+
+    #########################
+    #                       #
+    #       Cell work       #
+    #                       #
+    #########################
+
+    def __extractResourceFromCell(self, rowNumber: int, columnNumber: int):
+
+        xStartPixel = max(0, self.xStartResourse + (self.cubeSideSize + self.grapBetweenCube) * columnNumber - self.BONUS_MARGING)
+        yStartPixel = max(0, self.yStartResourse + (self.cubeSideSize + self.grapBetweenCube) * rowNumber - self.BONUS_MARGING)
+        xFinishPixel = self.xStartResourse + self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * columnNumber + self.BONUS_MARGING
+        yFinishPixel = self.yStartResourse +  self.cubeSideSize + (self.cubeSideSize + self.grapBetweenCube) * rowNumber + self.BONUS_MARGING
+        
+        if self._isSave:
+            self.__extractCell(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber)
+        
+        valueResource = self.__extractResourceValue(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber)
+
+        nameResource = self.__extractResourceNames(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber)
+        
+        if rowNumber == 0 and columnNumber == 1: print(nameResource) 
+
+        resource = self.__findResourceOnName(nameResource)
+        
+        if resource is None:
+            nameResource = self.__extractResourceNames(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber, True)
+            resource = self.__findResourceOnName(nameResource)
+            if rowNumber == 0 and columnNumber == 1: print(nameResource) 
+            if resource is None:
+                return
+        
+        self.__addReource(resource, valueResource)
+
+    def __extractCell(self, xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber) -> Image:
+
+        coordinateCrop = (
+            xStartPixel,
+            yStartPixel, 
+            xFinishPixel,
+            yFinishPixel
+        )
+
+        cellImage = self.fullProfileImage.crop(coordinateCrop)
+
+        if self._isSave:
+            cellImage.save('result/a%d%d0.png' % (rowNumber, columnNumber))
+
+        return cellImage
+
+    def __extractResourceValue(self, xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber) -> int:
+        
+        coordinateCrop = (
+            xStartPixel,
+            yStartPixel,
+            xFinishPixel,
+            yStartPixel + self.cubeSideSize / 4
+        )
+        
+        valueImg = self.fullProfileImage.crop(coordinateCrop)
+        valueResource: np.array = pytesseract.image_to_string(valueImg, config='-c tessedit_char_whitelist=0123456789')
+        if valueResource.strip() == '':
+            valueImg = self._convertImageOnContrast(valueImg, self.textColor)
+            valueResource: str = pytesseract.image_to_string(valueImg, config='-c tessedit_char_whitelist=0123456789')
+
+        if self._isSave:
+            valueImg.save('result/a%d%d1.png' % (rowNumber, columnNumber))
+
+        if valueResource.strip() == '':
+            return 0
+        
+        characterIndex = 0
+        while characterIndex < len(valueResource):
+            if valueResource[characterIndex] == ' ' and characterIndex != len(valueResource) -1 and valueResource[characterIndex + 1] >= '0' and valueResource[characterIndex + 1] <= '9':
+                valueResource = valueResource[:characterIndex] + valueResource[characterIndex + 1:]
+            else:
+                characterIndex += 1
+
+        return max((int(value) for value in valueResource.split()))
+
+    def __extractResourceNames(self, xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber, isConvert = False) -> str:
+
+        coordinateCrop = [
+            xStartPixel,
+            yStartPixel + (yFinishPixel - yStartPixel) *  2 / 3,
+            xFinishPixel,
+            yFinishPixel
+        ]
+
+        nameImg = self.fullProfileImage.crop(coordinateCrop)
+
+        if isConvert:
+            nameImg = self._convertImageOnContrast(nameImg, self.textColor)
+            coordinateCrop = (
+                    0,
+                    0,
+                    nameImg.size[0],
+                    nameImg.size[1] - self._getGarbageLineQuantity(nameImg)
+                )
+            nameImg = nameImg.crop(coordinateCrop)
+
+        if self._isSave:
+            nameImg.save('result/a%d%d2.png' % (rowNumber, columnNumber))
+        
+        nameResource: str = self.__wordSimplification(pytesseract.image_to_string(nameImg, lang = self.language), self.language)
+        
+        return nameResource
+
+    def __findResourceOnName(self, extractName: str) -> Resource:
+
+        if extractName is None or extractName == '':
+            return None
+
+        for resourceIter in self.ALL_RESOURCE:
+            
+            if resourceIter.isThisResource(extractName, self.language):
+
+                return resourceIter
+            
+        return None
+
+    def __addReource(self, resource: Resource, value: int):
+        self.__resourceAddLocker.acquire( timeout = 10)
+        self.__resourses[resource] = value
+
+        if self.__rank is not None and resource.getQuantityOnRank(self.__rank) <= self.__resourses[resource]:
+
+            self.__enoughQuantityResource += 1
+
+        self.__resourceAddLocker.release()
+        
+    #########################
+    #                       #
+    #       Property        #
+    #                       #
+    #########################
 
     @property
     def resource(self):

@@ -1,1 +1,1 @@
-from .profileParser import MainProfileParser, ResourceProfileParser, wordSimplificationEng
+from .profileParser import MainProfileParser, ResourceProfileParser, Resource, wordSimplificationEng
