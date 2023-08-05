@@ -1,1 +1,1 @@
-from .profileParser import MainProfileParser, ResourceProfileParser, Resource, wordSimplificationEng
+from .profileParser import MainProfileParser, ResourceProfileParser, Resource, wordSimplificationEng, clearUserName

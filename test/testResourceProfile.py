@@ -252,6 +252,36 @@ class Test_MainProfile(unittest.TestCase):
 
         self.equalResourceAndName(path, realName, realResource)
 
+    def testingResourceProfile22(self):
+
+        realName = 'smertc25'
+        realResource = {
+            'форма': 2
+        }
+        path = r'test\resource\resource\resource21.png'
+
+        self.equalResourceAndName(path, realName, realResource)
+
+    def testingResourceProfile21(self):
+
+        realName = 'Beginner0_0'
+        realResource = {
+            'форма': 3
+        }
+        path = r'test\resource\resource\resource21.png'
+
+        self.equalResourceAndName(path, realName, realResource)
+
+    def testingResourceProfile21(self):
+
+        realName = 'Multazavr'
+        realResource = {
+            'форма': 1
+        }
+        path = r'test\resource\resource\resource21.png'
+
+        self.equalResourceAndName(path, realName, realResource)
+
     def equalResourceAndName(self, path, realName, realResource):
 
         with Image.open(path) as resourceImage:

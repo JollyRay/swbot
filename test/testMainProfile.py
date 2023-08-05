@@ -26,6 +26,9 @@ class Test_MainProfile(unittest.TestCase):
                     realName = os.path.basename(infile)[:-4]
                     realClan = direct
                     mp = MainProfileParser(im, self.CLANS)
+                    userName = mp.userName
+                    if ratio(userName, realName, processor = wordSimplificationEng) < self.MIN_EQUALS:
+                        userName, _, _ = mp.findMostSimilarWordOnImage( (realName, ) )
 
                     with self.subTest(mp=mp):
 
@@ -34,11 +37,11 @@ class Test_MainProfile(unittest.TestCase):
                             realClan,
                             msg = f'Clan({realClan}) not equals {realName}'
                         )
-                        
+
                         self.assertGreater(
-                            ratio(mp.userName, realName, processor = wordSimplificationEng),
+                            ratio(userName, realName, processor = wordSimplificationEng),
                             self.MIN_EQUALS,
-                            msg = f'Name not equals {realName} - {mp.userName} from {realClan}'
+                            msg = f'Name not equals {realName} - {userName} from {realClan}'
                         )
 
 

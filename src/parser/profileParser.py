@@ -47,7 +47,7 @@ def loadParam() -> str:
     
     pytesseract.tesseract_cmd = os.getenv('PYTESSERACT')
 
-    with open('resource/data.json', encoding='utf8') as dataFile:
+    with open('resource/resource.json', encoding='utf8') as dataFile:
         data: dict[str, any] = json.load( dataFile )
     
     if 'all_resource' in data.keys():
@@ -72,6 +72,50 @@ calcResourceEval = lambda rank, baseValue, formula: eval( formula, {'sqrt': sqrt
 
 wordSimplificationEng = lambda word: word.strip().lower().replace('i', 'l')
 wordSimplificationRus = lambda word: word.strip().lower().replace('ё', 'е').replace('й', 'и')
+
+FORBIDDEN_SYMBOL = [' ', '#', '&', '\r', '\n', '\t']
+
+def clearUserName(line: str) -> str:
+
+    #Choosing the longest word
+    words = line.split()
+
+    selectWord = ''
+
+    for name in words:
+        name = name.strip()
+        if len(selectWord) < len(name):
+            selectWord = name
+
+    #Looking for last forbidden symbol
+    firstForbiddenSymbol = 999
+    for symbol in FORBIDDEN_SYMBOL:
+        indexSymbol = selectWord.find(symbol)
+        if indexSymbol != -1 and indexSymbol < firstForbiddenSymbol:
+            firstForbiddenSymbol = indexSymbol
+    
+    #Delete extra symbols
+    if firstForbiddenSymbol != -1:
+        selectWord = selectWord[:firstForbiddenSymbol]
+
+    return selectWord.strip()
+
+def findMostSimilarWord(firstListWord: list[str], secondListWord: list[str], minPartMatch: float = 1):
+    potentialNameWithMaxRatio, wordWithMaxRatio, maxRatio = None, None, 0
+
+    for word1 in firstListWord:
+
+        for word2 in secondListWord:
+            
+            nowRatio = ratio(word1, word2, processor = wordSimplificationEng)
+
+            if nowRatio > minPartMatch:
+                return (word1, word2, nowRatio)
+            
+            if maxRatio < nowRatio:
+                potentialNameWithMaxRatio, wordWithMaxRatio, maxRatio = word1, word2, nowRatio
+
+    return (potentialNameWithMaxRatio, wordWithMaxRatio, maxRatio)
 
 DIRECTION = Enum('Direction', ['NORTH', 'SOUTH', 'WEST', 'EAST'])
 
@@ -221,18 +265,48 @@ class ProfileParser:
 
         return pixels.shape[0]
             
-    def _getLimitHorizonBorder(self, rowNumber: int, columnNumber: int, pixelColor: list[np.uint8], colorEsp: int = 50, step: int = 1) -> tuple[int]:
+    def _getLimitHorizonBorder(self, rowNumber: int, columnNumber: int, pixelColor: list[np.uint8], colorEsp: int = 69, step: int = 1) -> tuple[int]:
         imgHorizonLine = self.fullProfileImage.crop((0, rowNumber, self.xSize, rowNumber + 1))
         pixelHorizonLine = np.array(imgHorizonLine)
         pixelHorizonLine = pixelHorizonLine.reshape(self.xSize, len(pixelHorizonLine[0][0]))
         
         leftLimit = columnNumber
-        while leftLimit > step and calcColorDifference(pixelHorizonLine[leftLimit - step], pixelColor) < colorEsp:
-            leftLimit -= step
+        lastColor = pixelColor
+        while leftLimit > 0:
+
+            fullStep = 0
+            for stepForCheck in range(1, 5):
+                pixelIndex = leftLimit - step * stepForCheck
+                if pixelIndex < 0:
+                    break
+
+                if calcColorDifference(pixelHorizonLine[pixelIndex], lastColor) < colorEsp:
+                    fullStep = step * stepForCheck
+                    lastColor = pixelHorizonLine[pixelIndex]
+
+            if fullStep == 0:
+                break
+
+            leftLimit -= fullStep
 
         rightLimit = columnNumber
-        while rightLimit < pixelHorizonLine.shape[0] - step and calcColorDifference(pixelHorizonLine[rightLimit + step], pixelColor) < colorEsp:
-            rightLimit += step
+        lastColor = pixelColor
+        while rightLimit < pixelHorizonLine.shape[0] - step:
+
+            fullStep = 0
+            for stepForCheck in range(1, 5):
+                pixelIndex = rightLimit + step * stepForCheck
+                if pixelIndex > pixelHorizonLine.shape[0] - step:
+                    break
+
+                if calcColorDifference(pixelHorizonLine[pixelIndex], lastColor) < colorEsp:
+                    fullStep = step * stepForCheck
+                    lastColor = pixelHorizonLine[pixelIndex]
+
+            if fullStep == 0:
+                break
+
+            rightLimit += fullStep
 
         return (leftLimit, rightLimit)
 
@@ -309,12 +383,12 @@ class ProfileParser:
 
         return targetInfo
             
-    def _generateLineWithSpecialColor(self, rowNumber: int, columnNumber: int, specialColor: list[np.uint8], colorEps: int = 50, minLineSize: int = 128):
+    def _generateLineWithSpecialColor(self, rowNumber: int, columnNumber: int, specialColor: list[np.uint8], colorEps: int = 69, minLineSize: int = 128):
 
         coordinateCrop = (columnNumber, 0, columnNumber + 1, rowNumber)
         vertiacalLine = self.fullProfileImage.crop(coordinateCrop)
         colorLine = np.array(vertiacalLine)
-        colorLine = colorLine.reshape(rowNumber, len(colorLine[0][0]))
+        colorLine = colorLine.reshape(rowNumber, colorLine.shape[-1])
 
         isSeries = True
 
@@ -325,46 +399,19 @@ class ProfileParser:
 
                 if not isSeries:
 
-                    leftBorder, rightBorder = self._getLimitHorizonBorder(pixelIndex, columnNumber, specialColor)
-
+                    leftBorder, rightBorder = self._getLimitHorizonBorder(pixelIndex, columnNumber, nowColor)
                     if rightBorder - leftBorder + 1 > minLineSize:
                         isSeries = True
                         yield (pixelIndex, leftBorder, rightBorder)
             else:
                 isSeries = False
 
-    _FORBIDDEN_SYMBOL = [' ', '#', '&', '\r', '\n', '\t']
-
-    def _clearWord(self, line: str) -> str:
-
-        #Choosing the longest word
-        words = line.split()
-
-        selectWord = ''
-
-        for name in words:
-            name = name.strip()
-            if len(selectWord) < len(name):
-                selectWord = name
-
-        #Looking for last forbidden symbol
-        firstForbiddenSymbol = 999
-        for symbol in self._FORBIDDEN_SYMBOL:
-            indexSymbol = selectWord.find(symbol)
-            if indexSymbol != -1 and indexSymbol < firstForbiddenSymbol:
-                firstForbiddenSymbol = indexSymbol
-        
-        #Delete extra symbols
-        if firstForbiddenSymbol != -1:
-            selectWord = selectWord[:firstForbiddenSymbol]
-
-        return selectWord.strip()
-
 class MainProfileParser(ProfileParser):
 
     def __init__(self, fullProfileImage: Image.Image | str, clanNames: list[str], isSave: bool = False) -> None:
         super().__init__(fullProfileImage, isSave)
 
+        self.__wordOnImage = None
         self.__userName: None | str = None
         self.__clanName: None | str = None
         self.__rank: None | int = None
@@ -381,7 +428,8 @@ class MainProfileParser(ProfileParser):
     def __extractRank(self):
 
         if self.__generatorRowOfSpecialColor is None:
-            self.__extractClanName()
+            if self.clanName() is None:
+                return None
 
             if self.__generatorRowOfSpecialColor is None:
                 return None
@@ -432,6 +480,28 @@ class MainProfileParser(ProfileParser):
 
         return pytesseract.image_to_string(clanNameImage)
 
+    def __findClanNameExtraMetod(self) -> str:
+        
+        for clanName in self.__clanNames:
+
+            coincidence = 0
+            
+            for number, partClanName in enumerate(clanName.split()):
+
+                for word in self.wordOnImage:
+
+                    if ratio(word, partClanName, processor = wordSimplificationEng) > MINIMUM_PART_MATCH:
+                        coincidence += 1
+                        break
+
+                if coincidence <= number:
+                    break
+
+            if coincidence == len(clanName.split()):
+                return clanName
+                
+        return None
+
     __START_COLUMN_PROPOTION = 0.6
     __STEP_COLUMN_PROPOTION = 0.03
 
@@ -455,9 +525,10 @@ class MainProfileParser(ProfileParser):
 
                 clanName = self.__findClanName(topBorder1, bottomBorder1, leftBorder, rightBorder).strip()
 
-                realClanName = self.__compareExtractAndExistClanName(clanName, generatorRowOfSpecialColor)
+                realClanName = self.__compareExtractAndExistClanName(clanName)
 
                 if realClanName is not None:
+                    self.__generatorRowOfSpecialColor = generatorRowOfSpecialColor
                     return realClanName
 
                 bottomBorder2, leftBorder, rightBorder = next(generatorRowOfSpecialColor)
@@ -465,22 +536,24 @@ class MainProfileParser(ProfileParser):
                 
                 clanName = self.__findClanName(topBorder2, bottomBorder2, leftBorder, rightBorder).strip()
 
-                realClanName = self.__compareExtractAndExistClanName(clanName, generatorRowOfSpecialColor)
+                realClanName = self.__compareExtractAndExistClanName(clanName)
 
                 if realClanName is not None:
+                    self.__generatorRowOfSpecialColor = generatorRowOfSpecialColor
                     return realClanName
                 
             except StopIteration: pass
             finally:
                 iteration += 1
-        return None
+
+        clanName = self.__findClanNameExtraMetod()
+
+        return clanName
     
-    def __compareExtractAndExistClanName(self, clanName, rightGenerator):
+    def __compareExtractAndExistClanName(self, clanName):
 
         for exampleClanName in self.__clanNames:
             if ratio(clanName, exampleClanName, processor = wordSimplificationEng) > MINIMUM_PART_MATCH:
-                self.__generatorRowOfSpecialColor = rightGenerator
-                self.__clanName = exampleClanName
                 return clanName
             
         return None
@@ -516,7 +589,7 @@ class MainProfileParser(ProfileParser):
 
             usersName: str = pytesseract.image_to_string(userNameImage)
 
-            usersName = self._clearWord(usersName)
+            usersName = clearUserName(usersName)
 
             if len(usersName) >= self.__MIN_NAME_LETTERS:
                 return usersName
@@ -524,6 +597,18 @@ class MainProfileParser(ProfileParser):
             indentValue += step
 
         return ''
+
+    def findMostSimilarWordOnImage(self, potentialList: list[str], minPartMatch = MINIMUM_PART_MATCH):
+
+        return findMostSimilarWord(self.wordOnImage, potentialList, minPartMatch)
+
+    @property
+    def wordOnImage(self):
+        if self.__wordOnImage is None:
+            self.__wordOnImage = pytesseract.image_to_string(self.fullProfileImage, lang='eng').split()
+            self.__wordOnImage = ( clearUserName(word) for word in self.__wordOnImage )
+
+        return self.__wordOnImage
 
     @property
     def userName(self):
@@ -570,14 +655,15 @@ class Resource:
         
         return True
     
-    def __init__(self, names: dict[str, str], baseValue: int, **otherScaling) -> None:
+    def __init__(self, names: dict[str, str], baseValue: int, weight: int, **otherScaling) -> None:
         
         self.names = names
         self.baseValue = baseValue
+        self.weight = weight
 
         self.otherSaling = {}
 
-        for startRank, formula in otherScaling:
+        for startRank, formula in otherScaling.items():
 
             try:
 
@@ -650,7 +736,12 @@ class ResourceProfileParser(ProfileParser):
                 names = { lang: cls.__wordSimplification(value, lang) for lang, value in resource['name'].items()}
 
                 cls.ALL_RESOURCE.append(
-                    Resource(names, resource['start_cost'], )
+                    Resource(
+                        names,
+                        resource['start_cost'],
+                        resource.get('weight', 1),
+                        **resource.get('special_scaling_formula', {})
+                    )
                 )
             except KeyError: pass
 
@@ -697,7 +788,7 @@ class ResourceProfileParser(ProfileParser):
         if self._isSave:
             imageCrop.save('result/name.png')
 
-        self.__userName: str = self._clearWord(pytesseract.image_to_string(imageCrop))
+        self.__userName: str = clearUserName(pytesseract.image_to_string(imageCrop))
 
         return True
 
@@ -857,15 +948,12 @@ class ResourceProfileParser(ProfileParser):
         valueResource = self.__extractResourceValue(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber)
 
         nameResource = self.__extractResourceNames(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber)
-        
-        if rowNumber == 0 and columnNumber == 1: print(nameResource) 
 
         resource = self.__findResourceOnName(nameResource)
         
         if resource is None:
             nameResource = self.__extractResourceNames(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber, True)
             resource = self.__findResourceOnName(nameResource)
-            if rowNumber == 0 and columnNumber == 1: print(nameResource) 
             if resource is None:
                 return
         
@@ -897,25 +985,21 @@ class ResourceProfileParser(ProfileParser):
         )
         
         valueImg = self.fullProfileImage.crop(coordinateCrop)
-        valueResource: np.array = pytesseract.image_to_string(valueImg, config='-c tessedit_char_whitelist=0123456789')
+        valueResource: np.array = pytesseract.image_to_string(valueImg, config='-c tessedit_char_whitelist=0123456789 --psm 6')
         if valueResource.strip() == '':
             valueImg = self._convertImageOnContrast(valueImg, self.textColor)
-            valueResource: str = pytesseract.image_to_string(valueImg, config='-c tessedit_char_whitelist=0123456789')
+            valueResource: str = pytesseract.image_to_string(valueImg, config='-c tessedit_char_whitelist=0123456789 --psm 6')
 
         if self._isSave:
             valueImg.save('result/a%d%d1.png' % (rowNumber, columnNumber))
 
-        if valueResource.strip() == '':
-            return 0
-        
-        characterIndex = 0
-        while characterIndex < len(valueResource):
-            if valueResource[characterIndex] == ' ' and characterIndex != len(valueResource) -1 and valueResource[characterIndex + 1] >= '0' and valueResource[characterIndex + 1] <= '9':
-                valueResource = valueResource[:characterIndex] + valueResource[characterIndex + 1:]
-            else:
-                characterIndex += 1
+        translationTable = dict.fromkeys(map(ord, ' \n\r\t'), None)
+        valueResource = valueResource.translate(translationTable)
 
-        return max((int(value) for value in valueResource.split()))
+        if valueResource.strip() == '':
+            return 1
+        
+        return int(valueResource)
 
     def __extractResourceNames(self, xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber, isConvert = False) -> str:
 
@@ -964,7 +1048,7 @@ class ResourceProfileParser(ProfileParser):
 
         if self.__rank is not None and resource.getQuantityOnRank(self.__rank) <= self.__resourses[resource]:
 
-            self.__enoughQuantityResource += 1
+            self.__enoughQuantityResource += resource.weight
 
         self.__resourceAddLocker.release()
         
@@ -986,7 +1070,7 @@ class ResourceProfileParser(ProfileParser):
     def enoughQuantityResource(self):
         return self.__enoughQuantityResource
 
-# Load all data from /data.json
+# Load all data from ./resource/resource.json
 
 res = loadParam()
 

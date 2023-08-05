@@ -1,0 +1,275 @@
+{
+    "scaling_formula": "rank * baseValue * (rank < 21) + 20 * baseValue * exp( ( rank - 20 ) / 8) * (rank >= 21)",
+    "all_resource": [
+        {
+            "name": {
+                "rus": "Форма",
+                "eng": ""
+            },
+            "start_cost": 1,
+            "special_scaling_formula": {
+                "1": "1 + rank // 10"
+            },
+            "weight": 2
+        },
+        {
+            "name": {
+                "rus": "Ампула Детонита",
+                "eng": ""
+            },
+            "start_cost": 150
+        },
+        {
+            "name": {
+                "rus": "Образец Мутагена",
+                "eng": ""
+            },
+            "start_cost": 50
+        },
+        {
+            "name": {
+                "rus": "Образец Филдрона",
+                "eng": ""
+            },
+            "start_cost": 150
+        },
+        {
+            "name": {
+                "rus": "Вторсырьё",
+                "eng": ""
+            },
+            "start_cost": 1500
+        },
+        {
+            "name": {
+                "rus": "Галлий",
+                "eng": ""
+            },
+            "start_cost": 3
+        },
+        {
+            "name": {
+                "rus": "Гексенон",
+                "eng": ""
+            },
+            "start_cost": 100
+        },
+        {
+            "name": {
+                "rus": "Криотик",
+                "eng": ""
+            },
+            "start_cost": 500
+        },
+        {
+            "name": {
+                "rus": "Модуль Контроля",
+                "eng": ""
+            },
+            "start_cost": 9
+        },
+        {
+            "name": {
+                "rus": "Морфиды",
+                "eng": ""
+            },
+            "start_cost": 9
+        },
+        {
+            "name": {
+                "rus": "Наноспоры",
+                "eng": ""
+            },
+            "start_cost": 2000
+        },
+        {
+            "name": {
+                "rus": "Нейроды",
+                "eng": ""
+            },
+            "start_cost": 3
+        },
+        {
+            "name": {
+                "rus": "Нейронные Датчики",
+                "eng": ""
+            },
+            "start_cost": 3
+        },
+        {
+            "name": {
+                "rus": "Оксиум",
+                "eng": ""
+            },
+            "start_cost": 300
+        },
+        {
+            "name": {
+                "rus": "Пластиды",
+                "eng": ""
+            },
+            "start_cost": 400
+        },
+        {
+            "name": {
+                "rus": "Полимеры",
+                "eng": ""
+            },
+            "start_cost": 1000
+        },
+        {
+            "name": {
+                "rus": "Рубедо",
+                "eng": ""
+            },
+            "start_cost": 1200
+        },
+        {
+            "name": {
+                "rus": "Сплавы",
+                "eng": ""
+            },
+            "start_cost": 1600
+        },
+        {
+            "name": {
+                "rus": "Схемы",
+                "eng": ""
+            },
+            "start_cost": 1200
+        },
+        {
+            "name": {
+                "rus": "Теллуриум",
+                "eng": ""
+            },
+            "start_cost": 3
+        },
+        {
+            "name": {
+                "rus": "Феррит",
+                "eng": ""
+            },
+            "start_cost": 1600
+        },
+        {
+            "name": {
+                "rus": "Элемент Питания Орокин",
+                "eng": ""
+            },
+            "start_cost": 3
+        },
+        {
+            "name": {
+                "rus": "Инжектор Детонита",
+                "eng": ""
+            },
+            "start_cost": 1
+        },
+        {
+            "name": {
+                "rus": "Мутагенная Масса",
+                "eng": ""
+            },
+            "start_cost": 1
+        },
+        {
+            "name": {
+                "rus": "Филдрон",
+                "eng": ""
+            },
+            "start_cost": 1
+        },
+        {
+            "name": {
+                "rus": "Системы Атмо",
+                "eng": ""
+            },
+            "start_cost": 2
+        },
+        {
+            "name": {
+                "rus": "Системы Гиромаг",
+                "eng": ""
+            },
+            "start_cost": 3
+        },
+        {
+            "name": {
+                "rus": "Системы Отражателей",
+                "eng": ""
+            },
+            "start_cost": 1
+        },
+        {
+            "name": {
+                "rus": "Астерит",
+                "eng": ""
+            },
+            "start_cost": 15
+        },
+        {
+            "name": {
+                "rus": "Изос",
+                "eng": ""
+            },
+            "start_cost": 10
+        },
+        {
+            "name": {
+                "rus": "Камнеты",
+                "eng": ""
+            },
+            "start_cost": 5
+        },
+        {
+            "name": {
+                "rus": "Карбиды",
+                "eng": ""
+            },
+            "start_cost": 400
+        },
+        {
+            "name": {
+                "rus": "Коммы",
+                "eng": ""
+            },
+            "start_cost": 5
+        },
+        {
+            "name": {
+                "rus": "Кубические Диоды",
+                "eng": ""
+            },
+            "start_cost": 400
+        },
+        {
+            "name": {
+                "rus": "Окраксные Конденсаторы",
+                "eng": ""
+            },
+            "start_cost": 5
+        },
+        {
+            "name": {
+                "rus": "Пластина Тайкора",
+                "eng": ""
+            },
+            "start_cost": 300
+        },
+        {
+            "name": {
+                "rus": "Стержни Гэллоса",
+                "eng": ""
+            },
+            "start_cost": 5
+        },
+        {
+            "name": {
+                "rus": "Титан",
+                "eng": ""
+            },
+            "start_cost": 1000
+        }
+    ]
+}

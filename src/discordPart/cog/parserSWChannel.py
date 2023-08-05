@@ -1,12 +1,12 @@
 import discord
-from discord.ext import commands
+from discord.ext import tasks, commands
 import asyncio
 import json
 import logging
 import re
 from io import BytesIO
 from PIL import Image
-from parser.profileParser import MainProfileParser, ResourceProfileParser, wordSimplificationEng
+from parser.profileParser import MainProfileParser, ResourceProfileParser, wordSimplificationEng, findMostSimilarWord, clearUserName
 from Levenshtein import ratio
 from asyncio import sleep 
 from collections.abc import Iterable
@@ -52,9 +52,9 @@ class _MessageAfterProfileParse(str, Enum):
     CORRECT_PARSE = ''
     UNFIND_IMAGE = 'Вы не прикрепили изображение профиля. Отправьте его в ЭТУ ветку.'
     UNCORRECT_IMAGE = 'Выше изображение не вышло обработать, пожалуйста дождитесь модератора. Сообщение им уже отправлено!'
-    UNCORRECT_HEADER = 'Не удалось извелечь ваш ник из заголовка. С изображения был считан "{name}" этот ник совпадает с вашим?'
-    UNCORRECT_HEADER_IF_IMAGE_PARSE_UNCCORECT = 'Напишите в ЭТУ ветку ваш ник без постфкиса после # (Решётку тоже не надо!).'
-    UNCORRECT_MESSAGE = 'Ваше сообщение не соответсвует форме. Поажлуйста, оформите ваше сообщение как в примере.'
+    UNCORRECT_HEADER = 'Не удалось извлечь ваш ник из заголовка. С изображения был считан "{name}" этот ник совпадает с вашим?'
+    UNCORRECT_HEADER_IF_IMAGE_PARSE_UNCCORECT = 'Напишите в ЭТУ ветку ваш ник без постфикса после # (Решётку тоже не надо!).'
+    UNCORRECT_MESSAGE = 'Ваше сообщение не соответствует форме. Пожалуйста, оформите ваше сообщение как в примере.'
     UNCORRECT_SCRIPT = 'Извлечённый ник и указанный вами слишком сильно разнятся, пожалуйста дождитесь модератора. Оповещение им уже отправлено!'
 
     UNCORRECT_IMAGE_REPORT = '{name.mention} get unparsable image. Need moderator.'
@@ -64,19 +64,18 @@ class _MessageAfterResourseParse(str, Enum):
 
     TIMEOUT_RESPOND = 'Прошло слишком много времени. Заполните новую форму или обратитесь к модераторам.'
     UNCORRECT_IMAGE = 'Ваше изображение странного формата. Отправлен запрос модерации для обработки.'
-    MISSING_IMAGE = 'Прикрепите изображени вашего вклада (ESC - Связь - Клан ПКМ по себе "Внесённый вклад")'
-    MISSING_RANK = 'Неудалось получить вашн ранг. Пожалуйста напишите сюда его одним числом.'
+    MISSING_IMAGE = 'Если вы повышаетесь за ресурсы прикрепите изображение вашего вклада (ESC - Связь - Клан ПКМ по себе "Внесённый вклад"). Если вы желаете повыситься по другому способу, то напишите любому из ваших модераторов в игре или дискорде.'
+    MISSING_RANK = 'Не удалось получить ваш ранг. Пожалуйста напишите сюда его одним числом.'
     NEED_MORE_RESOURCE = 'Ваш вклад не соответствует условию:{resource}\n\nБот распарсил верно?'
     UNCORRECT_USER_DATA = 'Если вы считаете, что бот ошибся, мы отправили оповещение вашим модераторам оповещение.'
-    UNCORRECT_SCRIPT = 'Ваша ситуация передаётся под управлению модераторм. Сообщением им уже отправлено, пожалуйста подождите.'
-    CORRECT_ALL = 'Ваши данные обработаны и корректны. Повышение санкионировано, пожалуйста дождитесь модератора вашего клана в игре, оповещение им уже отправлено.'
+    UNCORRECT_SCRIPT = 'Ваша ситуация передаётся под управлению модератором. Сообщением им уже отправлено, пожалуйста подождите.'
+    CORRECT_ALL = 'Ваши данные обработаны и корректны. Повышение санкционировано, пожалуйста дождитесь модератора вашего клана в игре, оповещение им уже отправлено.'
 
     UNCORRECT_IMAGE_REPORT = '{member.mention} (из {channel.mention}) отправил странное изображение, не могу обработать.'
-    # UNCORRECT_USER_DATA_REPORT = '{member.mention} (из {channel.mention}) считает что бот распрасил данные неверно.'
     UNCORRECT_SCRIPT_REPORT = '{member.mention} (из {channel.mention}) отправил сообщение, которое не вышло обработать'
 
     MAGICIAN_REPORT = '''1. {name} {authorMention}
-2. Magician (2-ой способ)
+2. Exalted (2-ой способ)
 3. {rank} ранг
 :white_check_mark: - отчёт корректен, подчистить треды.
 :x: - удалить отчёт'''
@@ -239,7 +238,7 @@ async def _setClanRoleForMember(member: discord.Member, role: discord.Role):
         if role is not None:
             await member.add_roles(role)
 
-    except Exception:
+    except discord.Forbidden:
 
         logging.info('::cant set role')
 
@@ -341,17 +340,21 @@ def puckReportMessage(currentMessage: discord.Message, isNameWarning: bool, rank
 
 async def sendRespondAndReport(currentMessage: discord.Message, currentThread: discord.Thread, attachment: list[discord.Attachment], clanChannel: discord.TextChannel, meesageForUser: str, reportMessage: str):
 
-    if currentThread is not None:
-        await currentThread.send(meesageForUser)
+    try:
+        if currentThread is not None:
+            await currentThread.send(meesageForUser)
 
-    if clanChannel is None:
-        return
+        if clanChannel is None:
+            return
 
-    message: discord.Message = await clanChannel.send(reportMessage, files= [await a.to_file() for a in attachment])
-    await message.add_reaction(ACCEPT_SYMBLE)
-    await message.add_reaction(REFUSE_SYMBLE)
+        message: discord.Message = await clanChannel.send(reportMessage, files= [await a.to_file() for a in attachment])
+        await message.add_reaction(ACCEPT_SYMBLE)
+        await message.add_reaction(REFUSE_SYMBLE)
 
-    swBot.cogs['SWUserCog'].addResourceLinks(message, _MessageAfterResourseParse.UNCORRECT_USER_DATA, currentMessage, currentThread)
+        swBot.cogs['SWUserCog'].addResourceLinks(message, _MessageAfterResourseParse.UNCORRECT_USER_DATA, currentMessage, currentThread)
+
+    except discord.Forbidden:
+        logging.info(f'::{swBot.cogs["SWUserCog"].CANT_DELETE_MESSAGE}')
 
 async def replyAndAlarm(messageForReply: discord.Message, forUser: str, forModers: str | None = None, isDelete: bool = False):
     try:
@@ -367,7 +370,8 @@ async def replyAndAlarm(messageForReply: discord.Message, forUser: str, forModer
 
     if forModers:
         try:
-            await swBot.cogs['SWDataCog'].profileParseReportChannel.send(forModers)
+            if swBot.cogs['SWDataCog'].profileParseReportChannel:
+                await swBot.cogs['SWDataCog'].profileParseReportChannel.send(forModers)
         except discord.HTTPException:
             logging.info(f'::{swBot.cogs["SWUserCog"].CANT_SEND_TO_MODER_CHAT}')
 
@@ -379,8 +383,8 @@ async def replyAndAlarm(messageForReply: discord.Message, forUser: str, forModer
 
 class BaseWithButtonView(discord.ui.View):
 
-    def __init__(self, *_):
-        super().__init__(timeout = TIMEOUT_BEFORE_DELETE)
+    def __init__(self, *_, timeout = TIMEOUT_BEFORE_DELETE):
+        super().__init__(timeout = timeout)
 
         self.__messageWithButton: discord.Message | None = None
 
@@ -443,13 +447,14 @@ class ResourceParserQuestion(BaseWithButtonView):
 
 class ProfileMessageWithoutHeaderView(BaseWithButtonView):
 
-    def __init__(self, *, nameFromImage: str, role: discord.Role, currentMessage: discord.Message):
+    def __init__(self, *, nameFromImage: str, role: discord.Role, currentMessage: discord.Message, wordOmImage: list[str] = []):
         super().__init__(timeout = TIMEOUT_BEFORE_DELETE)
 
         self.__name: str = nameFromImage
         self.__role: discord.Role = role
         self.__currentMessage: discord.Message = currentMessage
         self.__thread: discord.Thread = None
+        self.__wordOmImage = wordOmImage
 
         self.__isPushing = False
 
@@ -468,7 +473,9 @@ class ProfileMessageWithoutHeaderView(BaseWithButtonView):
 
             await interaction.response.defer()
             await self._disableAllButton()
-            await finishWithMember(self.__currentMessage.author, f'[{self.__role.name}] {self.__name}', self.__role, self.__currentMessage, self.__thread)
+
+            pseudonym = swBot.cogs['SWDataCog'].getInfoOn(role = self.__role)[3]
+            await finishWithMember(self.__currentMessage.author, f'[{pseudonym}] {clearUserName(self.__name)}', self.__role, self.__currentMessage, self.__thread)
         else:
             await interaction.response.defer()
 
@@ -486,7 +493,7 @@ class ProfileMessageWithoutHeaderView(BaseWithButtonView):
                     _MessageAfterProfileParse.UNCORRECT_HEADER,
                     self.__currentMessage,
                     self.__thread,
-                    [self.__name , self.__role]
+                    [self.__role, self.__name] + self.__wordOmImage
                 )
             )
             
@@ -514,12 +521,15 @@ class SWCog(SWStandartCog, name='SWDataCog'):
         self.bot: commands.Bot = clinet
         
         self.__superMod = False
-        self.__superModers = [275357556862484484]
+        self.__allModers = []
+        self.__superModers = [275357556862484484, ]
 
         self.__guild = None
         self.__clanLinks = None
         self.__roleWithoutClan = None
+        self.__pseudonymWithoutClan = None
         self.__allModers = None
+        self.__moderRoles = None
         self.__startRoles = None
         self.__profileParseReportChannel = None
         self.__profileChannel = None
@@ -537,10 +547,6 @@ class SWCog(SWStandartCog, name='SWDataCog'):
                 @self.bot.check
                 async def globallyBlockPM(ctx):
 
-                    if ctx.guild is None:
-                        logging.info(f'{ctx.author}:None:message from PM')
-                        return False
-                    
                     if ctx.guild.id != self.__guild.id:
                         logging.info(f'{ctx.author}/{ctx.guild.id}:None:message from other guild')
                         return False
@@ -559,7 +565,8 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
                         self.__clanLinks[clanName] = {
                             'role': None if clanLink['role'] is None else self.__guild.get_role(clanLink['role']),
-                            'alert_channel': None if clanLink['alert_channel'] is None else self.__guild.get_channel(clanLink['alert_channel'])
+                            'alert_channel': None if clanLink['alert_channel'] is None else self.__guild.get_channel(clanLink['alert_channel']),
+                            'pseudonym': '' if clanLink.get('pseudonym') is None else clanLink['pseudonym']
                         }
                 else:
                     logging.warning('::WARING! Missing key "all_clans_name"')
@@ -572,11 +579,23 @@ class SWCog(SWStandartCog, name='SWDataCog'):
                 logging.warning('::WARING! Missing key "all_moderator"')
                 self.__roleWithoutClan: discord.Role = None
 
+            if 'pseudonym_without_clan' in data.keys():
+                self.__pseudonymWithoutClan: str = data['pseudonym_without_clan']
+            else:
+                logging.warning('::WARING! Missing key "pseudonym_without_clan"')
+                self.__pseudonymWithoutClan: str = ''
+
             if 'all_moderator' in data.keys():
                 self.__allModers: list[int] = data['all_moderator']
             else:
                 logging.warning('::WARING! Missing key "all_moderator"')
                 self.__allModers: list[int] = []
+
+            if 'moderator_roles' in data.keys():
+                self.__moderRoles: list[discord.Role] = [self.__guild.get_role(id) for id in data['moderator_roles']]
+            else:
+                logging.warning('::WARING! Missing key "moderator_roles"')
+                self.__moderRoles: list[discord.Role] = []
                 
             if 'start_roles' in data.keys():
                 self.__startRoles: list[discord.Role] = [self.__guild.get_role(roleId) for roleId in data['start_roles']]
@@ -602,6 +621,15 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
         print('#' * 44, '', f'\tLogged on as {self.bot.user}!', '', '#' * 44, sep = '\n')
 
+        # for number, member in enumerate(self.__guild.get_role(868797363777593384).members):
+        #     try:
+        #         print(number + 1)
+        #         if member.nick.find('[Deceptio]') != -1:
+        #             await member.edit( nick = member.nick.replace('[Deceptio]', '[Odium]')[:33] )
+        #     except Exception:
+        #         print(member.nick)
+        # print('Finish rename')
+
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         
@@ -616,8 +644,9 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
     def __updateAllData(self):
         self.__updateClanData()
+        self.__updateWithoutClanData()
+        self.__updateModerators()
         self.__updateProfileParserData()
-        self.__updateRoleWithoutClan()
         self.__updateResourceParserData()
 
     def __updateClanData(self):
@@ -627,7 +656,8 @@ class SWCog(SWStandartCog, name='SWDataCog'):
             
             newData[clanName] = {
                 'role': None if clanLinks['role'] is None else clanLinks['role'].id,
-                'alert_channel': None if clanLinks['alert_channel'] is None else clanLinks['alert_channel'].id
+                'alert_channel': None if clanLinks['alert_channel'] is None else clanLinks['alert_channel'].id,
+                'pseudonym': None if clanLinks['pseudonym'] == '' else clanLinks['pseudonym']
             }
 
         with open('resource/data.json', 'r+', encoding='utf-8') as dataFile:
@@ -638,11 +668,22 @@ class SWCog(SWStandartCog, name='SWDataCog'):
             dataFile.truncate(0)
             json.dump(data, dataFile, ensure_ascii = False, indent = 4)
 
-    def __updateRoleWithoutClan(self):
+    def __updateWithoutClanData(self):
         with open('resource/data.json', 'r+', encoding='utf-8') as dataFile:
 
             data: dict[str, any] = json.load( dataFile )
             data["role_without_clan"] = None if self.__roleWithoutClan is None else self.__roleWithoutClan.id
+            data["pseudonym_without_clan"] = self.__pseudonymWithoutClan if self.__pseudonymWithoutClan else '' 
+            dataFile.seek(0)
+            dataFile.truncate(0)
+            json.dump(data, dataFile, ensure_ascii = False, indent = 4)
+
+    def __updateModerators(self):
+        with open('resource/data.json', 'r+', encoding='utf-8') as dataFile:
+
+            data: dict[str, any] = json.load( dataFile )
+            data["all_moderator"] = self.__allModers
+            data["moderator_roles"] = [role.id for role in self.__moderRoles]
             dataFile.seek(0)
             dataFile.truncate(0)
             json.dump(data, dataFile, ensure_ascii = False, indent = 4)
@@ -674,6 +715,51 @@ class SWCog(SWStandartCog, name='SWDataCog'):
             dataFile.truncate(0)
             json.dump(data, dataFile, ensure_ascii = False, indent = 4)
 
+    def getInfoOn(self, clanName: str | None = None, role: discord.Role | int | None = None, channel: discord.TextChannel | int | None = None, pseudonym: str | None = None):
+
+        if clanName:
+
+            clanLink = self.clanLinks.get(clanName, False)
+            if clanLink:
+                return (clanName, clanLink.get('role'), clanLink.get('alert_channel'), clanLink.get('pseudonym'))
+            
+        if role:
+
+            for clanName, value in self.clanLinks.items():
+
+                if type(role) is int:
+
+                    if value.get('role').id == role:
+                        return (clanName, value.get('role'), value.get('alert_channel'), value.get('pseudonym'))
+
+                else:
+
+                    if value.get('role') == role:
+                        return (clanName, value.get('role'), value.get('alert_channel'), value.get('pseudonym'))
+
+        if channel:
+
+            for clanName, value in self.clanLinks.items():
+
+                if type(channel) is int:
+
+                    if value.get('alert_channel').id == channel:
+                        return (clanName, value.get('role'), value.get('alert_channel'), value.get('pseudonym'))
+
+                else:
+
+                    if value.get('alert_channel') == channel:
+                        return (clanName, value.get('role'), value.get('alert_channel'), value.get('pseudonym'))
+
+        if pseudonym:
+
+            for clanName, value in self.clanLinks.items():
+
+                if value.get('pseudonym') == pseudonym:
+                    return (clanName, value.get('role'), value.get('alert_channel'), value.get('pseudonym'))
+
+        return (None, self.__roleWithoutClan, None, self.__pseudonymWithoutClan)
+
     __extractRoleIdFromSting = staticmethod(lambda id: id if re.match(r'^<@&\d{10,20}>$', id) is None else int(id[3:-1]))
     __extractChannelIdFromString = staticmethod(lambda id: id if re.match(r'^<#\d{10,20}>$', id) is None else int(id[2:-1]))
     __extractMemberIdFromString = staticmethod(lambda id: id if re.match(r'^<@\d{10,20}>$', id) is None else int(id[2:-1]))
@@ -691,6 +777,10 @@ class SWCog(SWStandartCog, name='SWDataCog'):
     @property
     def roleWithoutClan(self):
         return self.__roleWithoutClan
+
+    @property
+    def pseudonymWithoutClan(self):
+        return self.__pseudonymWithoutClan
 
     @property
     def moderatorsId(self):
@@ -814,14 +904,14 @@ class SWCog(SWStandartCog, name='SWDataCog'):
         if isPossible:
             
             self.__roleWithoutClan = self.__guild.get_role(id)
-            self.__updateRoleWithoutClan()
+            self.__updateWithoutClanData()
 
         if not (message is None):
             await ctx.send(message)
 
     @commands.command(name = _CommandProperty.AdderC.commandName)
     async def addClan(self, ctx: commands.Context, clanName: str = None, *, member: discord.Member = None):
-        if not self.__verifyAccess(ctx, _CommandProperty.AdderC): return
+        if not self.verifyAccess(ctx.author, _CommandProperty.AdderC): return
 
         if clanName is None:
             logging.info(f'{ctx.author}:{_CommandProperty.AdderC.commandName}:clan is none:{clanName}')
@@ -841,7 +931,7 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
     @commands.command(name = _CommandProperty.DeleterC.commandName)
     async def deleteClan(self, ctx: commands.Context, clanName: str = None, *, member: discord.Member = None):
-        if not self.__verifyAccess(ctx, _CommandProperty.DeleterC): return
+        if not self.verifyAccess(ctx.author, _CommandProperty.DeleterC): return
 
         if clanName is None:
             logging.info(f'{ctx.author}:{_CommandProperty.DeleterC.commandName}:clan is none:{clanName}')
@@ -861,7 +951,7 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
     @commands.command(name = _CommandProperty.AdderModerator.commandName)
     async def addModerator(self, ctx: commands.Context, id: int | str = None, *, member: discord.Member = None):
-        if not self.__verifyAccess(ctx, _CommandProperty.AdderModerator): return
+        if not self.verifyAccess(ctx.author, _CommandProperty.AdderModerator): return
 
         if type(id) is str:
             id = self.__extractMemberIdFromString(id)
@@ -875,22 +965,22 @@ class SWCog(SWStandartCog, name='SWDataCog'):
             logging.info(f'{ctx.author}:{_CommandProperty.AdderModerator.commandName}:moderator exists::{id}')
             await ctx.send(_CommandProperty.AdderModerator.getFailedAnswer(None, id))
             return
-        
-        with open('resource/data.json', 'r+', encoding='utf-8') as dataFile:
 
-            data: dict[str, any] = json.load( dataFile )
+        role = self.__guild.get_role(id)
+
+        if role:
+            self.__moderRoles.append(role)
+        else:
             self.__allModers.append(id)
-            data["all_moderator"] = self.__allModers
-            dataFile.seek(0)
-            dataFile.truncate(0)
-            json.dump(data, dataFile, ensure_ascii = False, indent = 4)
+
+        self.__updateModerators()
 
         logging.info(f'{ctx.author}:{_CommandProperty.AdderModerator.commandName}:moderator add::{id}')
         await ctx.send(_CommandProperty.AdderModerator.getSuccessAnswer(None, id))
 
     @commands.command(name = _CommandProperty.DeleterModerator.commandName)
     async def deleteModerator(self, ctx: commands.Context, id: int | str = None, *, member: discord.Member = None):
-        if not self.__verifyAccess(ctx, _CommandProperty.DeleterModerator): return
+        if not self.verifyAccess(ctx.author, _CommandProperty.DeleterModerator): return
 
         if type(id) is str:
             id = self.__extractMemberIdFromString(id)
@@ -905,21 +995,21 @@ class SWCog(SWStandartCog, name='SWDataCog'):
             await ctx.send(_CommandProperty.DeleterModerator.getFailedAnswer(None, id))
             return
         
-        with open('resource/data.json', 'r+', encoding='utf-8') as dataFile:
+        role = self.__guild.get_role(id)
 
-            data: dict[str, any] = json.load( dataFile )
+        if role:
+            self.__moderRoles.remove(role)
+        else:
             self.__allModers.remove(id)
-            data["all_moderator"] = self.__allModers
-            dataFile.seek(0)
-            dataFile.truncate(0)
-            json.dump(data, dataFile, ensure_ascii = False, indent = 4)
+
+        self.__updateModerators()
 
         logging.info(f'{ctx.author}:{_CommandProperty.DeleterModerator.commandName}:moderator delete:{id}')
         await ctx.send(_CommandProperty.DeleterModerator.getSuccessAnswer(None, id))
 
     @commands.command(name = _CommandProperty.AdderSR.commandName)
-    async def addModerator(self, ctx: commands.Context, id: int | str = None, *, member: discord.Member = None):
-        if not self.__verifyAccess(ctx, _CommandProperty.AdderModerator): return
+    async def addStartRole(self, ctx: commands.Context, id: int | str = None, *, member: discord.Member = None):
+        if not self.verifyAccess(ctx.author, _CommandProperty.AdderSR): return
 
         if type(id) is str:
             id = self.__extractRoleIdFromSting(id)
@@ -949,8 +1039,8 @@ class SWCog(SWStandartCog, name='SWDataCog'):
         await ctx.send(_CommandProperty.AdderSR.getSuccessAnswer(role.name, id))
 
     @commands.command(name = _CommandProperty.DeleterSR.commandName)
-    async def deleteModerator(self, ctx: commands.Context, id: int | str = None, *, member: discord.Member = None):
-        if not self.__verifyAccess(ctx, _CommandProperty.DeleterSR): return
+    async def deleteStartRole(self, ctx: commands.Context, id: int | str = None, *, member: discord.Member = None):
+        if not self.verifyAccess(ctx.author, _CommandProperty.DeleterSR): return
 
         if type(id) is str:
             id = self.__extractRoleIdFromSting(id)
@@ -981,7 +1071,7 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
     @commands.command(name = _CommandProperty.ShowStage.commandName)
     async def showStage(self, ctx: commands.Context, *, member: discord.Member = None):
-        if not self.__verifyAccess(ctx, _CommandProperty.ShowStage): return
+        if not self.verifyAccess(ctx.author, _CommandProperty.ShowStage): return
 
         info: str = '======Info======\n'
 
@@ -1005,6 +1095,11 @@ class SWCog(SWStandartCog, name='SWDataCog'):
             if not (member is None):
                 info += f'{member.mention} '
 
+        for role in self.__moderRoles:
+
+            if role:
+                info += f'{role.mention} '
+
         info += '\n\n'
 
         for clanName, links in self.__clanLinks.items():
@@ -1014,14 +1109,14 @@ class SWCog(SWStandartCog, name='SWDataCog'):
             if links['role'] is None:
                 info += '() -> '
             else:
-                info += f'({links["role"].mention}) -> '
+                info += f'({links["role"].mention} - "{links["pseudonym"]}") -> '
 
             if not (links['alert_channel'] is None):
                 info += f'{links["alert_channel"].mention}'
 
             info += '\n'
 
-        info += f'Without clna ({self.__roleWithoutClan if self.__roleWithoutClan is None else self.__roleWithoutClan.mention})'
+        info += f'Without clan ({self.__roleWithoutClan if self.__roleWithoutClan is None else self.__roleWithoutClan.mention})'
 
         await ctx.send(info)
 
@@ -1032,15 +1127,24 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
             await ctx.send('Set super mod' if self.__superMod else 'Set noraml mod')
 
-    def __verifyAccess(self, ctx: commands.Context, targetCommandObject: _CommandStuct) -> bool:
-        if ctx.author.id in self.__allModers or ctx.author.id in self.__superMod:
+    def verifyAccess(self, author: discord.Member, targetCommandObject: _CommandStuct = None, isAlert: bool = True) -> bool:
+        
+        if self.__allModers is not None and author.id in self.__allModers or self.__superModers is not None and author.id in self.__superModers:
             return True
-        logging.info(f'{ctx.author.name}:{targetCommandObject.commandName}:message from common user')
+        
+        if self.__moderRoles is not None:
+            for moderatorClanRole in self.__moderRoles:
+                if moderatorClanRole in author.roles:
+                    return True
+            
+        if isAlert:
+            logging.info(f'{author.name}:{ targetCommandObject if targetCommandObject is None else targetCommandObject.commandName}:message from common user')
+        
         return False
 
     def __isPossibilities(self, ctx: commands.Context, name: str | None, id: int | None, targetCommandObject: _CommandStuct, listForSearch: list):
         
-        if not self.__verifyAccess(ctx, targetCommandObject):
+        if not self.verifyAccess(ctx.author, targetCommandObject):
             return (False, None)
 
         if id is None:
@@ -1122,6 +1226,12 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
 
         if message.author == self.bot.user:
             return
+        
+        if not (type(message.author) is discord.Member ):
+            return
+
+        if self.__dataCog.verifyAccess(message.author, isAlert = False):
+            return
 
         if message.channel is self.bot.cogs['SWDataCog'].profileParseChannel:
             await self.__profileHandler(message)
@@ -1131,7 +1241,6 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             await self.__resourceParser(message)
             return
         
-
         if message.channel.id in self.__threadForClarifications:
             isNeedLate = await self.__extraThreadHandler(message, self.__threadForClarifications.get(message.channel.id))
 
@@ -1140,6 +1249,7 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             return
 
     MINIMUM_PART_MATCH = 0.75
+    MINIMUM_PART_MATCH_EXTRA = 0.5
     RESOURCE_QUANTITY_TYPE = 2
 
     #################################
@@ -1180,7 +1290,7 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             await self.__unfindImageRespond(message, listOfPotansialNick)
             return
         
-        if not message.attachments[0].filename.endswith(('.png', '.jpeg', '.gif')):
+        if not message.attachments[0].filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
 
             await self.__uncorrectImageRespond(message)
             return
@@ -1203,17 +1313,17 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             if ratio(userName, profileParser.userName, processor = wordSimplificationEng) > self.MINIMUM_PART_MATCH:
                 realName = userName
                 break
+        
+        if realName is None:
+            realName, _, _ = profileParser.findMostSimilarWordOnImage(potentialUserNames, self.MINIMUM_PART_MATCH_EXTRA)
 
         if realName is None:
             await self.__uncorrectScript(message)
             return
         
-        if profileParser.clanName is None:
-            role = self.bot.cogs['SWDataCog'].roleWithoutClan
-        else:
-            role = self.bot.cogs['SWDataCog'].clanLinks[profileParser.clanName]['role']
+        _, role, _, pseudonym = self.__dataCog.getInfoOn(clanName = profileParser.clanName)
         
-        await finishWithMember(message.author, f'[{"" if role is None else role.name}] {realName}', role, message)
+        await finishWithMember(message.author, f'[{pseudonym}] {clearUserName(realName)}', role, message)
 
     async def __unfindImageRespond(self, message: discord.Message, potentialUserNames: list[str]):
 
@@ -1254,7 +1364,7 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
                     'Нет заголовка',
                     message,
                     _MessageAfterProfileParse.UNCORRECT_HEADER.value.format(name = profileImageParser.userName),
-                    ProfileMessageWithoutHeaderView(nameFromImage = profileImageParser.userName, role = role, currentMessage = message),
+                    ProfileMessageWithoutHeaderView(nameFromImage = profileImageParser.userName, role = role, currentMessage = message, wordOmImage = profileImageParser.wordOnImage),
                     None,
                     False
                 )
@@ -1281,7 +1391,7 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             False
         )
 
-    async def __createErrorThread(self, theadHeader: str, message: discord.Message, messageForUser: str, viewForUser: discord.ui.View | None, messageForModerator: str | None, isAddToTempTread: bool, data: _TempThreadWithData = None):
+    async def __createErrorThread(self, theadHeader: str, message: discord.Message, messageForUser: str, viewForUser: ProfileMessageWithoutHeaderView | None, messageForModerator: str | None, isAddToTempTread: bool, data: _TempThreadWithData = None):
 
         try:
 
@@ -1300,10 +1410,10 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
         except discord.Forbidden:
             logging.info(f'::{self.CANT_SEND_TO_PROFILE_THREAD}')
 
-        if self.bot.cogs['SWDataCog'].profileParseReportChannel and messageForModerator:
+        if self.__dataCog.profileParseReportChannel and messageForModerator:
 
             try:
-                await self.bot.cogs['SWDataCog'].profileParseReportChannel.send(messageForModerator)
+                await self.__dataCog.profileParseReportChannel.send(messageForModerator)
             except discord.Forbidden:
                 logging.info(f'::{self.CANT_SEND_TO_MODER_CHAT}')
 
@@ -1413,7 +1523,7 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             threadForUser = await message.create_thread(name = self.THEAD_HEADER)
             attachments = await self.__waitForImage(threadForUser)
         
-        if not any((a.filename.endswith(('.png', '.jpeg', '.gif')) for a in attachments)):
+        if not any((a.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')) for a in attachments)):
             if threadForUser is None: threadForUser = await message.create_thread(name = self.THEAD_HEADER)
 
             await threadForUser.send(_MessageAfterResourseParse.UNCORRECT_IMAGE.value)
@@ -1446,7 +1556,7 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
         quantityNow = 0
 
         for attachment in attachments:
-            if attachment.filename.endswith(('.png', '.jpeg', '.gif')):
+            if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
                 image = await _converAttachmentToImage(attachment)
                 resourceParser = ResourceProfileParser(image, rank)
                 resource |= resourceParser.resource
@@ -1472,8 +1582,6 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             
             if data.code == _MessageAfterProfileParse.UNCORRECT_HEADER:
                 return await self.__handelAfterMissHeader(message, data)
-                
-        
 
         return False
     
@@ -1495,23 +1603,21 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             await replyAndAlarm(newMessage, _MessageAfterProfileParse.UNCORRECT_SCRIPT.value, _MessageAfterProfileParse.UNCORRECT_SCRIPT_REPORT.format(name = newMessage.author))
             return False
 
-        for name in data.listOfPotensialNames:
 
-            if ratio(name, profileParser.userName, processor = wordSimplificationEng) > self.MINIMUM_PART_MATCH:
+        name, _, _ = profileParser.findMostSimilarWordOnImage(data.listOfPotensialNames)
 
-                if profileParser.clanName is None:
-                    role = self.bot.cogs['SWDataCog'].roleWithoutClan
-                else:
-                    role = self.bot.cogs['SWDataCog'].clanLinks[profileParser.clanName]['role']
-                    
-                await finishWithMember(
-                    newMessage.author,
-                    f'[{"" if role is None else role.name}] {name}',
-                    role, data.currentMessage,
-                    data.currentThread
-                )
+        if name is not None and name != '':
 
-                return False
+            _, role, _, pseudonym = self.__dataCog.getInfoOn(clanName = profileParser.clanName)
+                
+            await finishWithMember(
+                newMessage.author,
+                f'[{pseudonym}] {clearUserName(name)}',
+                role, data.currentMessage,
+                data.currentThread
+            )
+
+            return False
 
         await replyAndAlarm(newMessage, _MessageAfterProfileParse.UNCORRECT_SCRIPT.value, _MessageAfterProfileParse.UNCORRECT_SCRIPT_REPORT.format(name = newMessage.author))
         return False
@@ -1522,21 +1628,21 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
             return True
 
         listOfName = self.__extractNameFromProfileMessage(newMessage.content)
-        imageName: str = data.listOfPotensialNames[0]
-        role: discord.Role | None = data.listOfPotensialNames[1]
+        imageName: str = data.listOfPotensialNames[1:]
+        role: discord.Role | None = data.listOfPotensialNames[0]
+        pseudonym = self.__dataCog.getInfoOn( role  = role )[3]
 
-        for name in listOfName:
+        word, _, nowRatio = findMostSimilarWord( listOfName, imageName, self.MINIMUM_PART_MATCH )
+        if nowRatio > self.MINIMUM_PART_MATCH:
 
-            if ratio( name, imageName, processor = wordSimplificationEng ) > self.MINIMUM_PART_MATCH:
-
-                await finishWithMember(
-                    newMessage.author, 
-                    f'[{"" if role is None else role.name}] {name}',
-                    role,
-                    data.currentMessage,
-                    data.currentThread
-                )
-                return False
+            await finishWithMember(
+                newMessage.author, 
+                f'[{pseudonym}] {clearUserName(word)}',
+                role,
+                data.currentMessage,
+                data.currentThread
+            )
+            return False
             
         await replyAndAlarm(newMessage, _MessageAfterProfileParse.UNCORRECT_SCRIPT.value, _MessageAfterProfileParse.UNCORRECT_SCRIPT_REPORT.format(name = newMessage.author))
         return True
@@ -1546,6 +1652,9 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
     #             UTIL              #
     #                               #
     #################################
+
+    __COMMAND_DELETE_THRAD = 'deleteExtraThread'
+    __COMMAND_DELETE_REPORT_LINK = 'deleteReportLink'
 
     def addThreadListener(self, threadId: int, data: _TempThreadWithData):
 
@@ -1562,5 +1671,48 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
     def deleteReportLink(self, reportMessage: discord.Message):
         if reportMessage in self.__reportAndUserDataLink:
             del self.__reportAndUserDataLink[reportMessage]
+
+    @tasks.loop( hours = 1.0 )
+    async def cleanExtraThread(self):
+
+        remainingThread = {}
+
+        for id, data in self.__threadForClarifications.items():
+
+            thread = self.__dataCog.__guild.get_thread(id)
+
+            if thread is None:
+                logging.info(f':{self.__COMMAND_DELETE_THRAD}:thread not found')
+                continue
+
+            if thread.starter_message is None:
+                logging.info(f':{self.__COMMAND_DELETE_THRAD}:start message delete')
+                continue
+
+            remainingThread[id] = data
+
+        self.__threadForClarifications = remainingThread
+
+        remainingReport = {}
+
+        for message, data in self.__reportAndUserDataLink.items():
+
+            try:
+                findMessage = await message.channel.fetch_message(message.id)
+                
+                isDelete = True
+                for reaction in findMessage.reactions:
+
+                    if reaction.emoji.name == ACCEPT_SYMBLE or reaction.emoji.name == REFUSE_SYMBLE:
+                        isDelete = False
+                        remainingReport[message] = data
+                        break
+
+                if isDelete:
+                    logging.info(f':{self.__COMMAND_DELETE_REPORT_LINK}:message withot role')
+
+            except discord.NotFound:
+                
+                logging.info(f':{self.__COMMAND_DELETE_REPORT_LINK}:message is delete')
 
 ALL_COGS = [SWCog, SWUserCog]
