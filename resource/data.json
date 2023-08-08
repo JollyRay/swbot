@@ -38,8 +38,10 @@
     ],
     "profile_info_channel": null,
     "alerts": {
+        "eidolon_channel": 1137457071533605025,
         "arbitration_channel": 1132879514960150558,
         "aya_channel": 1137058533599346698,
+        "eidolon_role": 1137456446703935570,
         "arbitration_role": 1136682619904471221,
         "aya_role": 1136681789239341087
     },
