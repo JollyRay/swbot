@@ -1558,7 +1558,9 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
         for attachment in attachments:
             if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
                 image = await _converAttachmentToImage(attachment)
-                resourceParser = ResourceProfileParser(image, rank)
+                resourceParser, isTimeout = ResourceProfileParser.createAndExecute(image, rank)
+                if isTimeout:
+                    logging.info(f'{authorName}:resourceExtractz:image timeout')
                 resource |= resourceParser.resource
                 isOtherName = isOtherName or ratio(resourceParser.userName, authorName, processor = wordSimplificationEng) < self.MINIMUM_PART_MATCH
                 quantityNow += resourceParser.enoughQuantityResource

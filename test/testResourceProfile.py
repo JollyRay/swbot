@@ -258,27 +258,78 @@ class Test_MainProfile(unittest.TestCase):
         realResource = {
             'форма': 2
         }
-        path = r'test\resource\resource\resource21.png'
+        path = r'test\resource\resource\resource22.png'
 
         self.equalResourceAndName(path, realName, realResource)
 
-    def testingResourceProfile21(self):
+    def testingResourceProfile23(self):
 
         realName = 'Beginner0_0'
         realResource = {
             'форма': 3
         }
-        path = r'test\resource\resource\resource21.png'
+        path = r'test\resource\resource\resource23.png'
 
         self.equalResourceAndName(path, realName, realResource)
 
-    def testingResourceProfile21(self):
+    def testingResourceProfile24(self):
 
         realName = 'Multazavr'
         realResource = {
             'форма': 1
         }
-        path = r'test\resource\resource\resource21.png'
+        path = r'test\resource\resource\resource24.png'
+
+        self.equalResourceAndName(path, realName, realResource)
+
+    def testingResourceProfile25(self):
+
+        realName = 'mad_ivan'
+        realResource = {
+            'ампула детонита': 1950,
+            'образец филдрона': 1950
+        }
+        path = r'test\resource\resource\resource25.png'
+
+        self.equalResourceAndName(path, realName, realResource)
+        
+    def testingResourceProfile26(self):
+
+        realName = 'Arkan_gamer'
+        realResource = {
+            'ампула детонита': 500,
+            'вторсырье': 35000,
+            'галлии': 30,
+            'криотик': 500,
+            'наноспоры': 25000,
+            'неироды': 33,
+            'образец филдрона': 150,
+            'пластиды': 5000,
+            'полимеры': 11000
+        }
+        path = r'test\resource\resource\resource26.png'
+
+        self.equalResourceAndName(path, realName, realResource)
+        
+    def testingResourceProfile27(self):
+
+        realName = 'Ne10x'
+        realResource = {
+            'полимеры': 7000,
+            'сплавы': 11200
+        }
+        path = r'test\resource\resource\resource27.png'
+
+        self.equalResourceAndName(path, realName, realResource)
+
+    def testingResourceProfile28(self):
+
+        realName = 'Traniks'
+        realResource = {
+            'наноспоры': 12000,
+            'сплавы': 9600
+        }
+        path = r'test\resource\resource\resource28.png'
 
         self.equalResourceAndName(path, realName, realResource)
 
@@ -286,7 +337,7 @@ class Test_MainProfile(unittest.TestCase):
 
         with Image.open(path) as resourceImage:
 
-            rpp = ResourceProfileParser(resourceImage)
+            rpp, _ = ResourceProfileParser.createAndExecute(resourceImage)
 
             resourceCollect = {}
             for resource, value in rpp.resource.items():

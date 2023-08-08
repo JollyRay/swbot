@@ -73,6 +73,11 @@ calcResourceEval = lambda rank, baseValue, formula: eval( formula, {'sqrt': sqrt
 wordSimplificationEng = lambda word: word.strip().lower().replace('i', 'l')
 wordSimplificationRus = lambda word: word.strip().lower().replace('ё', 'е').replace('й', 'и')
 
+resourceNameFix: dict = {
+    'rus': lambda word: word.lower().replace('3', 'з').replace('6', 'б').replace('8', 'в'),
+    'eng': lambda word: word.lower().replace('1', 'l')
+}
+
 FORBIDDEN_SYMBOL = [' ', '#', '&', '\r', '\n', '\t']
 
 def clearUserName(line: str) -> str:
@@ -773,7 +778,46 @@ class ResourceProfileParser(ProfileParser):
         self.cubeSideSize: float = 0
         self.grapBetweenCube: float = 0
 
-        self._setParam()
+        self.__isCalc = False
+
+    @staticmethod
+    def createAndExecute(fullProfileImage: Image.Image | str, rank: int | None = None, isSave: bool = False) -> None:
+        
+        '''
+        
+        Create ResourceProfileParser and calculate resource
+
+        Parameters
+        ----------
+
+        fullProfile: Image | str
+            Image with resource or path to image
+
+        rank: int
+            number of rank for calculate success resource
+
+        isSave: bool
+            Debug parameter for save all pictures for check
+
+        Returns
+        ----------
+
+        ResourceProfileParser:
+            Object for read resource from image
+
+        bool:
+            finish with timeout
+        
+        '''
+
+        rpp = ResourceProfileParser(fullProfileImage, rank, isSave)
+
+        try:
+            rpp._setParam()
+        except Exception: 
+            return (rpp, True)
+        
+        return (rpp, False)
 
     INTERVAL_BETWEEN_CELL_PROPORTION = 0.15
     Y_SIDE_EPS = 20
@@ -819,7 +863,6 @@ class ResourceProfileParser(ProfileParser):
         
         return wordsUnderHeader, wordsUnderHeader.tail(1).index[0]
 
-    #TODO: Check on shor or lower names
     def _searchUserName(self, dataFrameFindWord: pd.DataFrame) -> bool:
 
         if dataFrameFindWord.ndim != 2 or dataFrameFindWord.shape[1] < 2:
@@ -832,13 +875,22 @@ class ResourceProfileParser(ProfileParser):
         
         return True
 
-    # @param:
-    #   lineNumber - is start header index
-    #   allLine - all info about all words
-    # @return:
-    #   0* - is last line number in header
-    #   1* - avg height header's 
     def _setXCenter(self, wordUnderHeader: pd.DataFrame) -> int:
+
+        '''
+        Find center on X axis with resource
+
+        Parameters
+        ----------
+        allLine: DataFrame
+            all info about all words
+
+        Returns
+        ----------
+        int
+            avg height header's 
+
+        '''
 
         if wordUnderHeader.shape[0] != 2:
             return None
@@ -890,6 +942,8 @@ class ResourceProfileParser(ProfileParser):
     
     @timeout(20)
     def _setParam(self):
+
+        self.__isCalc = True
 
         #Choose languge 
 
@@ -948,11 +1002,13 @@ class ResourceProfileParser(ProfileParser):
         valueResource = self.__extractResourceValue(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber)
 
         nameResource = self.__extractResourceNames(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber)
+        nameResource = resourceNameFix[self.language](nameResource)
 
         resource = self.__findResourceOnName(nameResource)
         
         if resource is None:
             nameResource = self.__extractResourceNames(xStartPixel, yStartPixel, xFinishPixel, yFinishPixel, rowNumber, columnNumber, True)
+            nameResource = resourceNameFix[self.language](nameResource)
             resource = self.__findResourceOnName(nameResource)
             if resource is None:
                 return
@@ -1005,7 +1061,7 @@ class ResourceProfileParser(ProfileParser):
 
         coordinateCrop = [
             xStartPixel,
-            yStartPixel + (yFinishPixel - yStartPixel) *  2 / 3,
+            yStartPixel + (yFinishPixel - yStartPixel) / 2,
             xFinishPixel,
             yFinishPixel
         ]
@@ -1060,14 +1116,26 @@ class ResourceProfileParser(ProfileParser):
 
     @property
     def resource(self):
+        if not self.__isCalc:
+            try:
+                self._setParam()
+            except Exception: pass
         return self.__resourses
     
     @property
     def userName(self):
+        if not self.__isCalc:
+            try:
+                self._setParam()
+            except Exception: pass
         return self.__userName
     
     @property
     def enoughQuantityResource(self):
+        if not self.__isCalc:
+            try:
+                self._setParam()
+            except Exception: pass 
         return self.__enoughQuantityResource
 
 # Load all data from ./resource/resource.json
