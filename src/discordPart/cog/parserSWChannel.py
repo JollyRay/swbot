@@ -299,8 +299,10 @@ def attemptExtractRank(comment: str) -> int:
             
             for indexLine in range(1, 7):
 
-                if int(allNumbersInComment[indexLine - 1][1:-1]) != indexLine:
-                    return int(allNumbersInComment[indexLine - 1][1:-1]) + 30 * isLegendary
+                if len(allNumbersInComment[indexLine - 1]) > 2:
+
+                    if int(allNumbersInComment[indexLine - 1][1:-1]) != indexLine:
+                        return int(allNumbersInComment[indexLine - 1][1:-1]) + 30 * isLegendary
     
     # On indexed rows
 
@@ -493,7 +495,7 @@ class ProfileMessageWithoutHeaderView(BaseWithButtonView):
                     _MessageAfterProfileParse.UNCORRECT_HEADER,
                     self.__currentMessage,
                     self.__thread,
-                    [self.__role, self.__name] + self.__wordOmImage
+                    [self.__role, self.__name, *self.__wordOmImage]
                 )
             )
             
