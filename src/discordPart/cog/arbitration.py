@@ -61,13 +61,13 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
     __extractRoleIdFromSting = staticmethod(lambda id: id if re.match(r'^<@&\d{10,20}>$', id) is None else int(id[3:-1]))
 
     LIST_OF_IMPORTANT_EVENT = (
-        'Hydron (Sedna)',
-        'Casta (Ceres)',
-        'Helene (Saturn)',
-        'Odin (Mercury)',
-        'Cinxia (Ceres)',
-        'Seimeni (Ceres)',
-        'Sechura (Pluto)'
+        'Hydron (Седна)',
+        'Casta (Церера)',
+        'Helene (Сатурн)',
+        'Odin (Меркурий)',
+        'Cinxia (Церера)',
+        'Seimeni (Церера)',
+        'Sechura (Плутон)'
     )
 
     LIST_OF_IMPORTANT_VENUS_SYNDICATE_MISSION = (
@@ -178,22 +178,23 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
 
                 dataDict: dict = respond.json()
 
-                if not ( 'isDay' in dataDict and 'expiry' in dataDict and 'activation' in dataDict):
+                if not ( 'isDay' in dataDict and 'expiry' in dataDict):
                     return self.BASE_TIME_TO_WAIT
                 
                 isDay = dataDict.get('isDay')
+                timeEnd = self.convertStrToTime(dataDict.get('expiry')).timestamp()
 
-                if not isDay or self.convertStrToTime(dataDict.get('expiry')).timestamp() - time() < self.ALERT_EIDOLON_BEFORE:
+                if not isDay or timeEnd - time() < self.ALERT_EIDOLON_BEFORE:
                     timeNightStart = None
                     timeNightEnd = None
 
                     if not isDay:
-                        timeNightStart = int(self.convertStrToTime(dataDict['activation']).timestamp())
-                        timeNightEnd = int(self.convertStrToTime(dataDict['expiry']).timestamp())
+                        timeNightEnd = int(timeEnd)
+                        timeNightStart = timeNightEnd - self.NIGHT_DURATION
 
                     if self.convertStrToTime(dataDict.get('expiry')).timestamp() - time() < self.ALERT_EIDOLON_BEFORE:
-                        timeNightStart = int(self.convertStrToTime(dataDict['expiry']).timestamp())
-                        timeNightEnd = int(self.convertStrToTime(dataDict['expiry']).timestamp() + self.NIGHT_DURATION)
+                        timeNightStart = int(timeEnd)
+                        timeNightEnd = timeNightStart + self.NIGHT_DURATION
 
                     embed = self.__composeEidolonEmbed(timeNightStart, timeNightEnd)
 
@@ -213,7 +214,7 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
 
         embed = Embed(
             color = self.EIDOLON_COLOR,
-            title = 'Эйдалоны - Ночь',
+            title = 'Эйдолоны - Ночь',
             description = f'''Начало: <t:{timeStart}:R>
 Конец: <t:{timeFinish}:R>''',
         )
