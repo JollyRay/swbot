@@ -1,7 +1,7 @@
 import logging
 import discord
 from discord.ext import commands
-from discordPart.cog import parserSWChannel, arbitration
+from discordPart.cog import parserSWChannel, arbitration, duviriAlert
 from discordPart.cog.patrenCog import SWStandartCog
 
 PREFIX = '♂'
@@ -26,6 +26,7 @@ def setupBot():
 
     parserSWChannel.setup(swBot, PREFIX)
     arbitration.setup(swBot, PREFIX)
+    duviriAlert.setup(swBot, PREFIX)
 
     return swBot
 
