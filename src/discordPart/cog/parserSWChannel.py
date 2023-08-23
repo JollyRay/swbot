@@ -297,12 +297,15 @@ def attemptExtractRank(comment: str) -> int:
         
         if len(allNumbersInComment) > 1:
             
-            for indexLine in range(1, 7):
+            for indexLine in range(6):
 
-                if len(allNumbersInComment[indexLine - 1]) > 2:
+                if len(allNumbersInComment) <= indexLine:
+                    break
 
-                    if int(allNumbersInComment[indexLine - 1][1:-1]) != indexLine:
-                        return int(allNumbersInComment[indexLine - 1][1:-1]) + 30 * isLegendary
+                if len(allNumbersInComment[indexLine]) > 2:
+
+                    if int(allNumbersInComment[indexLine][1:-1]) != indexLine + 1:
+                        return int(allNumbersInComment[indexLine][1:-1]) + 30 * isLegendary
     
     # On indexed rows
 
