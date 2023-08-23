@@ -45,7 +45,7 @@ TIMEOUT_BEFORE_DELETE = 180
 ACCEPT_SYMBLE = '✅'
 REFUSE_SYMBLE = '❌'
 
-CAN_DELETE = False
+CAN_DELETE = True
 
 class _MessageAfterProfileParse(str, Enum):
 
@@ -59,6 +59,8 @@ class _MessageAfterProfileParse(str, Enum):
 
     UNCORRECT_IMAGE_REPORT = '{name.mention} get unparsable image. Need moderator.'
     UNCORRECT_SCRIPT_REPORT = '{name.mention} wrong ratio. Need moderator.'
+
+    WITHOUT_CLAN_ROLE = 'Бот мог по ошибке выдать вам роль {role}. Если вы состоите в клане, ио позязя тыкните любого модера'
 
 class _MessageAfterResourseParse(str, Enum):
 
@@ -380,11 +382,11 @@ async def replyAndAlarm(messageForReply: discord.Message, forUser: str, forModer
         except discord.HTTPException:
             logging.info(f'::{swBot.cogs["SWUserCog"].CANT_SEND_TO_MODER_CHAT}')
 
-#################################
-#                               #
-#           Discord             #
-#                               #
-#################################
+#############################
+#                           #
+#           VIEW            #
+#                           #
+#############################
 
 class BaseWithButtonView(discord.ui.View):
 
@@ -480,7 +482,11 @@ class ProfileMessageWithoutHeaderView(BaseWithButtonView):
             await self._disableAllButton()
 
             pseudonym = swBot.cogs['SWDataCog'].getInfoOn(role = self.__role)[3]
-            await finishWithMember(self.__currentMessage.author, f'[{pseudonym}] {clearUserName(self.__name)}', self.__role, self.__currentMessage, self.__thread)
+            if self.__role == swBot.cogs['SWDataCog'].roleWithoutClan:
+                await finishWithMember(self.__currentMessage.author, f'[{pseudonym}] {clearUserName(self.__name)}', self.__role)
+                await self.__thread.send(_MessageAfterProfileParse.WITHOUT_CLAN_ROLE.value.format(role = 'Del role' if self.__role is None else self.__role.mention))
+            else:
+                await finishWithMember(self.__currentMessage.author, f'[{pseudonym}] {clearUserName(self.__name)}', self.__role, self.__currentMessage, self.__thread)
         else:
             await interaction.response.defer()
 
@@ -514,6 +520,12 @@ class ProfileMessageWithoutHeaderView(BaseWithButtonView):
     def thread(self, newThread):
         self.__thread = newThread
 
+#############################
+#                           #
+#       DATA HANDLER        #
+#                           #
+#############################
+
 class SWCog(SWStandartCog, name='SWDataCog'):
 
     #############################
@@ -525,7 +537,6 @@ class SWCog(SWStandartCog, name='SWDataCog'):
     def __init__(self, clinet: commands.Bot) -> None:
         self.bot: commands.Bot = clinet
         
-        self.__superMod = False
         self.__allModers = []
         self.__superModers = [275357556862484484, ]
 
@@ -1125,13 +1136,6 @@ class SWCog(SWStandartCog, name='SWDataCog'):
 
         await ctx.send(info)
 
-    @commands.command(name = 'flip')
-    async def flipMod(self, ctx: commands.Context, *, member: discord.Member = None):
-        if ctx.author.id in self.__superModers:
-            self.__superMod = not self.__superMod
-
-            await ctx.send('Set super mod' if self.__superMod else 'Set noraml mod')
-
     def verifyAccess(self, author: discord.Member, targetCommandObject: _CommandStuct = None, isAlert: bool = True) -> bool:
         
         if self.__allModers is not None and author.id in self.__allModers or self.__superModers is not None and author.id in self.__superModers:
@@ -1328,7 +1332,14 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
         
         _, role, _, pseudonym = self.__dataCog.getInfoOn(clanName = profileParser.clanName)
         
-        await finishWithMember(message.author, f'[{pseudonym}] {clearUserName(realName)}', role, message)
+        if role == self.__dataCog.roleWithoutClan:
+            await finishWithMember(message.author, f'[{pseudonym}] {clearUserName(realName)}', role)
+            await message.reply(
+                _MessageAfterProfileParse.WITHOUT_CLAN_ROLE.value.format(role = 'Del role' if role is None else role.mention),
+                delete_after = TIMEOUT_BEFORE_DELETE
+            )
+        else:
+            await finishWithMember(message.author, f'[{pseudonym}] {clearUserName(realName)}', role, message)
 
     async def __unfindImageRespond(self, message: discord.Message, potentialUserNames: list[str]):
 
@@ -1616,13 +1627,22 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
         if name is not None and name != '':
 
             _, role, _, pseudonym = self.__dataCog.getInfoOn(clanName = profileParser.clanName)
-                
-            await finishWithMember(
-                newMessage.author,
-                f'[{pseudonym}] {clearUserName(name)}',
-                role, data.currentMessage,
-                data.currentThread
-            )
+            
+            if role == self.__dataCog.roleWithoutClan:
+                await finishWithMember(
+                    newMessage.author,
+                    f'[{pseudonym}] {clearUserName(name)}',
+                    role
+                )
+                await data.currentThread.send(_MessageAfterProfileParse.WITHOUT_CLAN_ROLE.value.format(role = 'Del role' if role is None else role))
+            else:
+                await finishWithMember(
+                    newMessage.author,
+                    f'[{pseudonym}] {clearUserName(name)}',
+                    role,
+                    data.currentMessage,
+                    data.currentThread
+                )
 
             return False
 
@@ -1642,13 +1662,21 @@ class SWUserCog(commands.Cog, name='SWUserCog'):
         word, _, nowRatio = findMostSimilarWord( listOfName, imageName, self.MINIMUM_PART_MATCH )
         if nowRatio > self.MINIMUM_PART_MATCH:
 
-            await finishWithMember(
-                newMessage.author, 
-                f'[{pseudonym}] {clearUserName(word)}',
-                role,
-                data.currentMessage,
-                data.currentThread
-            )
+            if role == self.__dataCog.roleWithoutClan:
+                await finishWithMember(
+                    newMessage.author, 
+                    f'[{pseudonym}] {clearUserName(word)}',
+                    role,
+                )
+                await data.currentThread.send(_MessageAfterProfileParse.WITHOUT_CLAN_ROLE.value.format(role = 'Del role' if role is None else role))
+            else:
+                await finishWithMember(
+                    newMessage.author, 
+                    f'[{pseudonym}] {clearUserName(word)}',
+                    role,
+                    data.currentMessage,
+                    data.currentThread
+                )
             return False
             
         await replyAndAlarm(newMessage, _MessageAfterProfileParse.UNCORRECT_SCRIPT.value, _MessageAfterProfileParse.UNCORRECT_SCRIPT_REPORT.format(name = newMessage.author))
