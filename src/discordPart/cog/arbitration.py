@@ -162,9 +162,12 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
 
     @tasks.loop( count = 1 )
     async def eidolonLoop(self):
-        while True:
-            timeForWita = await self.alertEidolon()
-            await sleep(timeForWita)
+        try:
+            while True:
+                timeForWita = await self.alertEidolon()
+                await sleep(timeForWita)
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            pass
 
     async def alertEidolon(self):
         try:
@@ -224,9 +227,12 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
 
     @tasks.loop( count = 1 )
     async def arbitrationLoop(self):
-        while True:
-            timeForWita = await self.alertArbitration()
-            await sleep(timeForWita)
+        try:
+            while True:
+                timeForWita = await self.alertArbitration()
+                await sleep(timeForWita)
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            pass
 
     async def alertArbitration(self):
         try:
@@ -343,9 +349,12 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
 
     @tasks.loop( count = 1 )
     async def ayaLoop(self):
-        while True:
-            timeForWita = await self.alertAya()
-            await sleep(timeForWita)
+        try:
+            while True:
+                timeForWita = await self.alertAya()
+                await sleep(timeForWita)
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            pass
 
     async def alertAya(self):
         try:
