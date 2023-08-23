@@ -36,7 +36,7 @@ class _SyndicateMissionStruct:
 class ArbitrationCog(SWStandartCog, name='aritrationCog'):
 
     LINK_FOR_REQUEST = r'https://10o.io/arbitrations.json'
-    SPARE_LINK_FOR_REQUEST = r'https://10o.io/arbitrations.json'
+    SPARE_LINK_FOR_REQUEST = r'https://api.warframestat.us/pc/arbitration/'
     LINK_FOR_SYNDICATE = r'https://api.warframestat.us/pc/syndicateMissions/?language=ru'
     LINK_FOR_CETUS_TIME = r'https://api.warframestat.us/pc/cetusCycle/'
 
@@ -54,7 +54,7 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
 
     DAY_DURATION = 100 * 60
     NIGHT_DURATION = 50 * 60
-    ALERT_EIDOLON_BEFORE = 10 * 60
+    ALERT_EIDOLON_BEFORE = 15 * 60
 
     convertStrToTime = staticmethod(lambda stringTime: (datetime.strptime(stringTime, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=pytz.UTC)))
 
@@ -233,7 +233,7 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
             if (self.__timeNextArbitraion is None or time() > self.__timeNextArbitraion) and self.__arbitrationChannel is not None:
 
                 tempTime, mission, typeMission, fraction = self.arbitrationFindData()
-                print(datetime.now().strftime("%H:%M:%S"), mission, typeMission, fraction)
+                
                 if tempTime is None:
                     return self.SHORT_TIME_TOWAIT
                 
@@ -310,7 +310,7 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
                         fractionTranslate.get(dataDict['solnodedata'].get('enemy', 'Any'), 'Кто-то точно есть')
                     )
             
-        respond = requests.get(self.LINK_FOR_REQUEST)
+        respond = requests.get(self.SPARE_LINK_FOR_REQUEST)
 
         if respond.status_code == 200:
             
@@ -589,14 +589,13 @@ class ArbitrationCog(SWStandartCog, name='aritrationCog'):
         with open('resource/data.json', 'r+', encoding='utf-8') as dataFile:
 
             data: dict[str, any] = json.load( dataFile )
-            data["alerts"] = {
-                "eidolon_channel": None if self.__eidolonChannel is None else self.__eidolonChannel.id,
-                "arbitration_channel": None if self.__arbitrationChannel is None else self.__arbitrationChannel.id,
-                "aya_channel": None if self.__ayaChannel is None else self.__ayaChannel.id,
-                "eidolon_role": None if self.__eidolonRole is None else self.__eidolonRole.id,
-                "arbitration_role": None if self.__arbitrationRole is None else self.__arbitrationRole.id,
-                "aya_role": None if self.__ayaRole is None else self.__ayaRole.id
-            }
+            
+            data["alerts"]["eidolon_channel"] = None if self.__eidolonChannel is None else self.__eidolonChannel.id
+            data["alerts"]["arbitration_channel"] = None if self.__arbitrationChannel is None else self.__arbitrationChannel.id
+            data["alerts"]["aya_channel"] = None if self.__ayaChannel is None else self.__ayaChannel.id
+            data["alerts"]["eidolon_role"] = None if self.__eidolonRole is None else self.__eidolonRole.id
+            data["alerts"]["arbitration_role"] = None if self.__arbitrationRole is None else self.__arbitrationRole.id
+            data["alerts"]["aya_role"] = None if self.__ayaRole is None else self.__ayaRole.id
             
             dataFile.seek(0)
             dataFile.truncate(0)
